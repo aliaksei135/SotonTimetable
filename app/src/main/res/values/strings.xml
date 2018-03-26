@@ -1,0 +1,15 @@
+<resources>
+    <string name="app_name">Soton TimeTable</string>
+
+    <string-array name="calendars">
+        <item>Local (Device) Calendar</item>
+        <item>Microsoft/Office Calendar</item>
+        <item>Google Calendar</item>
+    </string-array>
+
+    <string-array name="calendars_values">
+        <item>local_cal</item>
+        <item>office_cal</item>
+        <item>google_cal</item>
+    </string-array>
+</resources>

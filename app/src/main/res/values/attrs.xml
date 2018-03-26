@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <declare-styleable name="LoginPreference">
+        <attr name="login_key" format="string"/>
+        <attr name="password_key" format="string"/>
+    </declare-styleable>
+</resources>

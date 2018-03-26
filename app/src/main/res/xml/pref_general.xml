@@ -1,0 +1,66 @@
+<PreferenceScreen xmlns:android="http://schemas.android.com/apk/res/android"
+                  xmlns:app="http://schemas.android.com/apk/res-auto">
+
+	<SwitchPreference
+		android:defaultValue="true"
+		android:key="enable_switch"
+		android:summary="Automatic synchronisation of your timetable to your calendar(s)"
+		android:title="AutoSync"/>
+
+	<com.aliakseipilko.sotontimetable.LoginPreference
+		android:key="soton_signin"
+		android:summary="Use your SUSSED login details"
+		android:title="Soton Sign In"
+		app:login_key="soton_login"
+		app:password_key="soton_pw"/>
+
+	<MultiSelectListPreference
+		android:entries="@array/calendars"
+		android:entryValues="@array/calendars_values"
+		android:key="enabled_calendars"
+		android:summary="Select calendars to keep synchronised"
+		android:title="Calendars to sync"/>
+
+	<PreferenceCategory
+		android:enabled="false"
+		android:key="local_cal_section"
+		android:title="Local Calendar">
+		<ListPreference
+			android:defaultValue="Timetable"
+			android:key="local_cal_id"
+			android:summary="Select local calendar to sync to"
+			android:title="Local Calendar"/>
+	</PreferenceCategory>
+
+	<PreferenceCategory
+		android:enabled="false"
+		android:key="office_cal_section"
+		android:title="Microsoft/Office Calendar">
+
+		<Preference
+			android:key="office_signin"
+			android:title="Microsoft/Office Sign In"/>
+
+		<ListPreference
+			android:defaultValue="Timetable"
+			android:key="office_cal_id"
+			android:summary="Select Office calendar to sync to"
+			android:title="Microsoft/Office Calendar"/>
+
+	</PreferenceCategory>
+
+	<PreferenceCategory
+		android:enabled="false"
+		android:key="google_cal_section"
+		android:title="Google Calendar">
+
+		<ListPreference
+			android:defaultValue="Timetable"
+			android:key="google_cal_id"
+			android:summary="Select Google calendar to sync to"
+			android:title="Google Calendar"/>
+
+	</PreferenceCategory>
+
+
+</PreferenceScreen>
