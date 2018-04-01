@@ -13,24 +13,22 @@ import android.support.annotation.NonNull;
 import android.support.v4.app.JobIntentService;
 import android.util.Log;
 
-import com.android.volley.DefaultRetryPolicy;
-import com.android.volley.Request;
-import com.android.volley.RequestQueue;
-import com.android.volley.Response;
-import com.android.volley.VolleyError;
-import com.android.volley.toolbox.JsonObjectRequest;
-import com.android.volley.toolbox.Volley;
-
-import com.aliakseipilko.sotontimetable.models.office.OfficeEventJsonModel;
 import com.aliakseipilko.sotontimetable.models.soton.EventJsonModel;
 import com.aliakseipilko.sotontimetable.models.soton.TimetableJsonModel;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
-import com.google.gson.JsonArray;
+import com.microsoft.graph.authentication.IAuthenticationProvider;
+import com.microsoft.graph.core.DefaultClientConfig;
+import com.microsoft.graph.core.IClientConfig;
 import com.microsoft.graph.extensions.BodyType;
 import com.microsoft.graph.extensions.DateTimeTimeZone;
+import com.microsoft.graph.extensions.Event;
+import com.microsoft.graph.extensions.GraphServiceClient;
+import com.microsoft.graph.extensions.IEventCollectionRequestBuilder;
+import com.microsoft.graph.extensions.IGraphServiceClient;
 import com.microsoft.graph.extensions.ItemBody;
 import com.microsoft.graph.extensions.Location;
+import com.microsoft.graph.http.IHttpRequest;
 import com.microsoft.identity.client.AuthenticationCallback;
 import com.microsoft.identity.client.AuthenticationResult;
 import com.microsoft.identity.client.MsalClientException;
@@ -42,8 +40,6 @@ import com.microsoft.identity.client.PublicClientApplication;
 import org.greenrobot.eventbus.EventBus;
 import org.greenrobot.eventbus.Subscribe;
 import org.greenrobot.eventbus.ThreadMode;
-import org.json.JSONException;
-import org.json.JSONObject;
 
 import java.io.BufferedWriter;
 import java.io.IOException;
@@ -56,19 +52,16 @@ import java.net.URL;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Calendar;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 
 import javax.net.ssl.HttpsURLConnection;
 
 
 public class SotonTimetableService extends JobIntentService {
 
-    final static String CLIENT_ID = "";
+    final static String CLIENT_ID = "ac6b7a81-b8e2-4a9b-9689-8a5b0be0ac2e";
     final static String SCOPES[] = {"https://graph.microsoft.com/Calendar.ReadWrite",
     };
-    final static String MSGRAPH_URL = "https://graph.microsoft.com/v1.0/me";
     private static final String AUTH_ENDPOINT = "https://my.southampton.ac.uk/campusm/sso/ldap/100";
     private static final String EVENTS_ENDPOINT = "https://my.southampton.ac.uk/campusm/sso/calendar/course_timetable/";
     private static final String TAG = "SotonTimetableService";
@@ -76,6 +69,9 @@ public class SotonTimetableService extends JobIntentService {
     PublicClientApplication pcApp;
     AlarmManager am;
     PendingIntent pi;
+
+    IGraphServiceClient mGraphServiceClient;
+
     private final BroadcastReceiver receiver = new BroadcastReceiver() {
         @Override
         public void onReceive(Context context, Intent intent) {
@@ -142,7 +138,13 @@ public class SotonTimetableService extends JobIntentService {
         try {
             TimetableJsonModel json = getJsonTimetable(prefs.getString("soton_login", null),
                     prefs.getString("soton_pw", null));
-            List<OfficeEventJsonModel> events = parseJsonToOffice(json);
+            if (prefs.getBoolean("office_cal_enabled", false)) {
+                List<Event> events = parseJsonToOffice(json);
+                addEventsToOffice(events);
+            }
+            if (prefs.getBoolean("google_cal_enabled", false)) {
+
+            }
         } catch (IOException e) {
             e.printStackTrace();
         }
@@ -200,23 +202,23 @@ public class SotonTimetableService extends JobIntentService {
 
     }
 
-    public List<OfficeEventJsonModel> parseJsonToOffice(TimetableJsonModel json) {
-        List<OfficeEventJsonModel> parsedEvents = new ArrayList<>();
+    public List<Event> parseJsonToOffice(TimetableJsonModel json) {
+        List<Event> parsedEvents = new ArrayList<>();
 
         for (EventJsonModel event : json.events) {
-            OfficeEventJsonModel newEvent = new OfficeEventJsonModel();
-            newEvent.setiCalUId(Long.toString(event.getId()));
-            newEvent.setSubject(event.getDesc2());
+            Event newEvent = new Event();
+            newEvent.iCalUId = (Long.toString(event.getId()));
+            newEvent.subject = (event.getDesc2());
 
             ItemBody body = new ItemBody();
             body.content = event.getDesc1() + "\nTeacher: " + event.getTeacherName();
             body.contentType = BodyType.text;
-            newEvent.setBody(body);
+            newEvent.body = (body);
 
             Location loc = new Location();
             loc.displayName = event.getLocCode();
             loc.address = null;
-            newEvent.setLocation(loc);
+            newEvent.location = (loc);
 
             @SuppressLint("SimpleDateFormat")
             SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss");
@@ -224,12 +226,12 @@ public class SotonTimetableService extends JobIntentService {
             DateTimeTimeZone start = new DateTimeTimeZone();
             start.dateTime = sdf.format(event.getStart());
             start.timeZone = "Europe/London";
-            newEvent.setStart(start);
+            newEvent.start = (start);
 
             DateTimeTimeZone end = new DateTimeTimeZone();
             end.dateTime = sdf.format(event.getEnd());
             end.timeZone = "Europe/London";
-            newEvent.setEnd(end);
+            newEvent.end = (end);
 
             parsedEvents.add(newEvent);
         }
@@ -245,7 +247,7 @@ public class SotonTimetableService extends JobIntentService {
         this.pcApp = event.getPcApp();
     }
 
-    private void addEventsToOffice(JsonArray parsedEvents) {
+    private void addEventsToOffice(List<Event> parsedEvents) {
         try {
             pcApp.acquireTokenSilentAsync(SCOPES, pcApp.getUsers().get(0),
                     getAuthSilentCallback(parsedEvents));
@@ -255,7 +257,7 @@ public class SotonTimetableService extends JobIntentService {
         }
     }
 
-    private AuthenticationCallback getAuthSilentCallback(final JsonArray parsedEvents) {
+    private AuthenticationCallback getAuthSilentCallback(final List<Event> parsedEvents) {
         return new AuthenticationCallback() {
             @Override
             public void onSuccess(final AuthenticationResult authenticationResult) {
@@ -265,43 +267,26 @@ public class SotonTimetableService extends JobIntentService {
                 /* Store the authResult */
                 authResult = authenticationResult;
 
-                RequestQueue queue = Volley.newRequestQueue(getApplicationContext());
+                IClientConfig clientConfig = DefaultClientConfig.createWithAuthenticationProvider(
+                        new IAuthenticationProvider() {
+                            @Override
+                            public void authenticateRequest(IHttpRequest request) {
+                                request.addHeader("Authorization", "Bearer "
+                                        + authenticationResult.getAccessToken());
+                            }
+                        });
+                mGraphServiceClient = new GraphServiceClient.Builder().fromConfig(
+                        clientConfig).buildClient();
 
-                try {
-                    JSONObject events = new JSONObject(parsedEvents.getAsString());
-                    JsonObjectRequest request = new JsonObjectRequest(Request.Method.GET,
-                            MSGRAPH_URL,
-                            events, new Response.Listener<JSONObject>() {
-                        @Override
-                        public void onResponse(JSONObject response) {
-                            /* Successfully called graph, process data and send to UI */
-                            Log.d(TAG, "Response: " + response.toString());
-                            //TODO Success Notif
-                        }
-                    }, new Response.ErrorListener() {
-                        @Override
-                        public void onErrorResponse(VolleyError error) {
-                            Log.d(TAG, "Error: " + error.toString());
-                            //TODO Error Notif
-                        }
-                    }) {
-                        @Override
-                        public Map<String, String> getHeaders() {
-                            Map<String, String> headers = new HashMap<>();
-                            headers.put("Authorization",
-                                    "Bearer " + authenticationResult.getAccessToken());
-                            return headers;
-                        }
-                    };
+                IEventCollectionRequestBuilder eventCollectionRequestBuilder =
+                        mGraphServiceClient.getMe()
+                                //TODO Support Custom Calendar ID
+                                .getCalendars("University Timetable")
+                                .getEvents();
 
-                    request.setRetryPolicy(new DefaultRetryPolicy(
-                            3000,
-                            DefaultRetryPolicy.DEFAULT_MAX_RETRIES,
-                            DefaultRetryPolicy.DEFAULT_BACKOFF_MULT));
-                    queue.add(request);
-
-                } catch (JSONException e) {
-                    e.printStackTrace();
+                for (Event e : parsedEvents) {
+                    eventCollectionRequestBuilder.buildRequest()
+                            .post(e);
                 }
 
             }
