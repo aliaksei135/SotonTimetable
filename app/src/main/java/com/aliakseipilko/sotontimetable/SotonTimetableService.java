@@ -15,7 +15,15 @@ import android.util.Log;
 
 import com.aliakseipilko.sotontimetable.models.soton.EventJsonModel;
 import com.aliakseipilko.sotontimetable.models.soton.TimetableJsonModel;
+import com.google.api.client.extensions.android.http.AndroidHttp;
+import com.google.api.client.googleapis.batch.BatchRequest;
+import com.google.api.client.googleapis.batch.json.JsonBatchCallback;
 import com.google.api.client.googleapis.extensions.android.gms.auth.GoogleAccountCredential;
+import com.google.api.client.googleapis.json.GoogleJsonError;
+import com.google.api.client.http.HttpHeaders;
+import com.google.api.client.http.HttpTransport;
+import com.google.api.client.json.JsonFactory;
+import com.google.api.client.json.jackson2.JacksonFactory;
 import com.google.api.client.util.DateTime;
 import com.google.api.services.calendar.model.EventDateTime;
 import com.google.api.services.calendar.model.EventReminder;
@@ -149,6 +157,7 @@ public class SotonTimetableService extends JobIntentService {
                 addEventsToOffice(events);
             }
             if (prefs.getBoolean("google_cal_enabled", false)) {
+                List<com.google.api.services.calendar.model.Event> events = parseJsonToGoogle(json);
 
             }
         } catch (IOException e) {
@@ -303,6 +312,35 @@ public class SotonTimetableService extends JobIntentService {
         } catch (MsalClientException e) {
             e.printStackTrace();
 
+        }
+    }
+
+    private void addEventsToGoogle(List<com.google.api.services.calendar.model.Event> parsedEvents)
+            throws IOException {
+        HttpTransport transport = AndroidHttp.newCompatibleTransport();
+        JsonFactory jsonFactory = JacksonFactory.getDefaultInstance();
+        com.google.api.services.calendar.Calendar mService =
+                new com.google.api.services.calendar.Calendar.Builder(
+                        transport, jsonFactory, googleCredential)
+                        .setApplicationName("SotonCal")
+                        .build();
+
+        BatchRequest batch = mService.batch();
+        for (com.google.api.services.calendar.model.Event event : parsedEvents) {
+            //TODO support custom calendar id
+            mService.events().insert("University Timetable", event).queue(batch,
+                    new JsonBatchCallback<com.google.api.services.calendar.model.Event>() {
+                        @Override
+                        public void onFailure(GoogleJsonError e, HttpHeaders responseHeaders) {
+                            //TODO Error notif
+                        }
+
+                        @Override
+                        public void onSuccess(com.google.api.services.calendar.model.Event event,
+                                HttpHeaders responseHeaders) {
+                            //TODO Yay it worked!
+                        }
+                    });
         }
     }
 
