@@ -18,6 +18,7 @@ import android.widget.Toast;
 import com.google.android.gms.common.ConnectionResult;
 import com.google.android.gms.common.GoogleApiAvailability;
 import com.google.api.client.googleapis.extensions.android.gms.auth.GoogleAccountCredential;
+import com.google.api.client.util.ExponentialBackOff;
 import com.google.api.services.calendar.CalendarScopes;
 import com.microsoft.identity.client.AuthenticationCallback;
 import com.microsoft.identity.client.AuthenticationResult;
@@ -26,6 +27,9 @@ import com.microsoft.identity.client.MsalException;
 import com.microsoft.identity.client.MsalServiceException;
 import com.microsoft.identity.client.PublicClientApplication;
 
+import org.greenrobot.eventbus.EventBus;
+
+import java.util.Arrays;
 import java.util.Set;
 
 import pub.devrel.easypermissions.AfterPermissionGranted;
@@ -56,7 +60,7 @@ public class SettingsActivity extends AppCompatPreferenceActivity {
         static final int REQUEST_GOOGLE_PLAY_SERVICES = 1002;
         static final int REQUEST_PERMISSION_GET_ACCOUNTS = 1003;
         private static final String PREF_ACCOUNT_NAME = "accountName";
-        private static final String[] GOOGLE_SCOPES = {CalendarScopes.CALENDAR};
+        private static final String[] GOOGLE_SCOPES = {CalendarScopes.CALENDAR,};
         private GoogleAccountCredential mCredential;
 
         // Brace yourself for a monolithic method
@@ -190,6 +194,15 @@ public class SettingsActivity extends AppCompatPreferenceActivity {
 
         private void authGoogle() {
 
+            if (isDeviceOnline()) {
+                // Initialize credentials and service object.
+                mCredential = GoogleAccountCredential.usingOAuth2(
+                        getActivity().getApplicationContext(), Arrays.asList(GOOGLE_SCOPES))
+                        .setBackOff(new ExponentialBackOff());
+            } else {
+                Toast.makeText(getActivity(), "No Internet Access!", Toast.LENGTH_SHORT).show();
+            }
+
         }
 
 
@@ -304,7 +317,7 @@ public class SettingsActivity extends AppCompatPreferenceActivity {
             } else if (mCredential.getSelectedAccountName() == null) {
                 chooseAccount();
             } else {
-
+                EventBus.getDefault().post(mCredential);
             }
         }
 

@@ -15,6 +15,10 @@ import android.util.Log;
 
 import com.aliakseipilko.sotontimetable.models.soton.EventJsonModel;
 import com.aliakseipilko.sotontimetable.models.soton.TimetableJsonModel;
+import com.google.api.client.googleapis.extensions.android.gms.auth.GoogleAccountCredential;
+import com.google.api.client.util.DateTime;
+import com.google.api.services.calendar.model.EventDateTime;
+import com.google.api.services.calendar.model.EventReminder;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import com.microsoft.graph.authentication.IAuthenticationProvider;
@@ -52,6 +56,7 @@ import java.net.URL;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Calendar;
+import java.util.Collections;
 import java.util.List;
 
 import javax.net.ssl.HttpsURLConnection;
@@ -87,7 +92,8 @@ public class SotonTimetableService extends JobIntentService {
             }
         }
     };
-    private AuthenticationResult authResult;
+
+    private GoogleAccountCredential googleCredential;
 
     @Override
     public void onCreate() {
@@ -233,6 +239,44 @@ public class SotonTimetableService extends JobIntentService {
             end.timeZone = "Europe/London";
             newEvent.end = (end);
 
+            newEvent.reminderMinutesBeforeStart = 20;
+
+            parsedEvents.add(newEvent);
+        }
+
+        return parsedEvents;
+    }
+
+    public List<com.google.api.services.calendar.model.Event> parseJsonToGoogle(
+            TimetableJsonModel json) {
+        List<com.google.api.services.calendar.model.Event> parsedEvents = new ArrayList<>();
+
+        for (EventJsonModel event : json.events) {
+            com.google.api.services.calendar.model.Event newEvent = new com.google.api.services
+                    .calendar.model.Event();
+
+            newEvent.setICalUID(Long.toString(event.getId()));
+            newEvent.setSummary(event.getDesc2());
+
+            newEvent.setDescription(event.getDesc1() + "\nTeacher: " + event.getTeacherName());
+            newEvent.setLocation(event.getLocCode());
+
+            @SuppressLint("SimpleDateFormat")
+            SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss");
+
+            EventDateTime start = new EventDateTime();
+            start.setDateTime(new DateTime(sdf.format(event.getStart())));
+            start.setTimeZone("Europe/London");
+            newEvent.setStart(start);
+
+            EventDateTime end = new EventDateTime();
+            end.setDateTime(new DateTime(sdf.format(event.getEnd())));
+            newEvent.setEnd(end);
+
+            newEvent.setReminders(
+                    new com.google.api.services.calendar.model.Event.Reminders().setOverrides(
+                            Collections.singletonList(new EventReminder().setMinutes(20))));
+
             parsedEvents.add(newEvent);
         }
 
@@ -245,6 +289,11 @@ public class SotonTimetableService extends JobIntentService {
                 .putString("office_access_token", event.getAccessToken())
                 .apply();
         this.pcApp = event.getPcApp();
+    }
+
+    @Subscribe(threadMode = ThreadMode.BACKGROUND)
+    public void onGoogleCredential(GoogleAccountCredential googleCredential) {
+        this.googleCredential = googleCredential;
     }
 
     private void addEventsToOffice(List<Event> parsedEvents) {
@@ -264,8 +313,6 @@ public class SotonTimetableService extends JobIntentService {
                 /* Successfully got a token, call Graph now */
                 Log.d(TAG, "Successfully authenticated");
 
-                /* Store the authResult */
-                authResult = authenticationResult;
 
                 IClientConfig clientConfig = DefaultClientConfig.createWithAuthenticationProvider(
                         new IAuthenticationProvider() {
