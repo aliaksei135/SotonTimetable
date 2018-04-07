@@ -67,6 +67,7 @@ import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Calendar;
 import java.util.Collections;
+import java.util.Date;
 import java.util.List;
 
 import javax.net.ssl.HttpsURLConnection;
@@ -110,7 +111,7 @@ public class SotonTimetableService extends JobIntentService {
     @Override
     public void onCreate() {
         super.onCreate();
-        prefs = getSharedPreferences(getPackageName(), MODE_PRIVATE);
+        prefs = getSharedPreferences(getPackageName() + "_preferences", MODE_PRIVATE);
 
         // To keep sessions alive
         CookieManager cookieManager = new CookieManager();
@@ -193,9 +194,9 @@ public class SotonTimetableService extends JobIntentService {
         connection.connect();
 
         if (connection.getResponseCode() == 200 || connection.getResponseCode() == 201) {
-            Calendar cal = Calendar.getInstance();
+            Date cal = Calendar.getInstance().getTime();
             @SuppressLint("SimpleDateFormat")
-            SimpleDateFormat sdf = new SimpleDateFormat("YYYYwww");
+            SimpleDateFormat sdf = new SimpleDateFormat("YYYYDDD");
             String stamp = sdf.format(cal);
 
             URL eventsURL = new URL(EVENTS_ENDPOINT + stamp);
@@ -226,7 +227,7 @@ public class SotonTimetableService extends JobIntentService {
 
         for (EventJsonModel event : json.events) {
             Event newEvent = new Event();
-            newEvent.iCalUId = (Long.toString(event.getId()));
+            newEvent.iCalUId = (event.getId());
             newEvent.subject = (event.getDesc2());
 
             ItemBody body = new ItemBody();
@@ -268,7 +269,7 @@ public class SotonTimetableService extends JobIntentService {
             com.google.api.services.calendar.model.Event newEvent = new com.google.api.services
                     .calendar.model.Event();
 
-            newEvent.setICalUID(Long.toString(event.getId()));
+            newEvent.setICalUID(event.getId());
             newEvent.setSummary(event.getDesc2());
 
             newEvent.setDescription(event.getDesc1() + "\nTeacher: " + event.getTeacherName());

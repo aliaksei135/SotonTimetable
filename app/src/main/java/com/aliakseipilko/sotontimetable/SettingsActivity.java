@@ -81,12 +81,13 @@ public class SettingsActivity extends AppCompatActivity {
                     new Intent().setAction("com.aliakseipilko.sotontimetable.stopsync"));
         }
 
-        /* OFFICE AUTH */
 
         // Brace yourself for a monolithic method
         @Override
         public void onCreate(Bundle savedInstanceState) {
-            final SharedPreferences prefs = getActivity().getSharedPreferences(getActivity().getPackageName(), MODE_PRIVATE);
+            //Crude hack
+            final SharedPreferences prefs = getActivity().getSharedPreferences(
+                    getActivity().getPackageName() + "_preferences", MODE_PRIVATE);
             super.onCreate(savedInstanceState);
 
             addPreferencesFromResource(R.xml.pref_general);
@@ -281,9 +282,6 @@ public class SettingsActivity extends AppCompatActivity {
                     .apply();
         }
 
-        /* END OFFICE AUTH */
-
-        /* GOOGLE AUTH */
 
         private void authGoogle() {
 
@@ -476,7 +474,5 @@ public class SettingsActivity extends AppCompatActivity {
                     REQUEST_GOOGLE_PLAY_SERVICES);
             dialog.show();
         }
-
-        /* END GOOGLE AUTH */
     }
 }
