@@ -3,6 +3,7 @@ package com.aliakseipilko.sotontimetable;
 
 import android.Manifest;
 import android.accounts.AccountManager;
+import android.annotation.SuppressLint;
 import android.app.Dialog;
 import android.content.Context;
 import android.content.Intent;
@@ -45,13 +46,19 @@ public class SettingsActivity extends AppCompatActivity {
         setContentView(R.layout.activity_settings);
     }
 
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        GeneralPreferenceFragment.handleOfficeRedirect(requestCode, resultCode, data);
+    }
+
     public static class GeneralPreferenceFragment extends PreferenceFragment {
 
         final static String OFFICE_CLIENT_ID = "ac6b7a81-b8e2-4a9b-9689-8a5b0be0ac2e";
         final static String OFFICE_SCOPES[] = {"https://graph.microsoft.com/Calendar.ReadWrite"};
         final static String MSGRAPH_URL = "https://graph.microsoft.com/v1.0/me";
-        private PublicClientApplication pcApp;
-        private AuthenticationResult authResult;
+        //Only instantiated for auth
+        @SuppressLint("StaticFieldLeak")
+        static PublicClientApplication pcApp;
         static final int REQUEST_ACCOUNT_PICKER = 1000;
         static final int REQUEST_AUTHORIZATION = 1001;
         static final int REQUEST_GOOGLE_PLAY_SERVICES = 1002;
@@ -59,6 +66,22 @@ public class SettingsActivity extends AppCompatActivity {
         private static final String PREF_ACCOUNT_NAME = "accountName";
         private static final String[] GOOGLE_SCOPES = {CalendarScopes.CALENDAR,};
         private GoogleAccountCredential mCredential;
+
+        private static void handleOfficeRedirect(int requestCode, int resultCode, Intent data) {
+            pcApp.handleInteractiveRequestRedirect(requestCode, resultCode, data);
+        }
+
+
+        private void startSotonService() {
+            getActivity().startService(new Intent(getActivity(), SotonTimetableService.class));
+        }
+
+        private void stopSotonService() {
+            getActivity().sendBroadcast(
+                    new Intent().setAction("com.aliakseipilko.sotontimetable.stopsync"));
+        }
+
+        /* OFFICE AUTH */
 
         // Brace yourself for a monolithic method
         @Override
@@ -83,6 +106,22 @@ public class SettingsActivity extends AppCompatActivity {
             final Preference googleSignin = findPreference("google_signin");
             final Preference googleCal = findPreference("google_cal_id");
 
+            if (prefs.getBoolean("local_cal_enabled", false)) {
+                localSection.setEnabled(true);
+            } else {
+                localSection.setEnabled(false);
+            }
+            if (prefs.getBoolean("office_cal_enabled", false)) {
+                officeSection.setEnabled(true);
+            } else {
+                officeSection.setEnabled(false);
+            }
+            if (prefs.getBoolean("google_cal_enabled", false)) {
+                googleSection.setEnabled(true);
+            } else {
+                googleSection.setEnabled(false);
+            }
+
 
             masterSwitch.setOnPreferenceChangeListener(new Preference.OnPreferenceChangeListener() {
                 @Override
@@ -90,6 +129,21 @@ public class SettingsActivity extends AppCompatActivity {
                     if(o.equals(true)){
                         startSotonService();
                         enabledCals.setEnabled(true);
+                        if (prefs.getBoolean("local_cal_enabled", false)) {
+                            localSection.setEnabled(true);
+                        } else {
+                            localSection.setEnabled(false);
+                        }
+                        if (prefs.getBoolean("office_cal_enabled", false)) {
+                            officeSection.setEnabled(true);
+                        } else {
+                            officeSection.setEnabled(false);
+                        }
+                        if (prefs.getBoolean("google_cal_enabled", false)) {
+                            googleSection.setEnabled(true);
+                        } else {
+                            googleSection.setEnabled(false);
+                        }
                     }else{
                         stopSotonService();
                         enabledCals.setEnabled(false);
@@ -102,60 +156,60 @@ public class SettingsActivity extends AppCompatActivity {
             });
 
             enabledCals.setOnPreferenceChangeListener(new Preference.OnPreferenceChangeListener() {
+                @SuppressLint("ApplySharedPref")
                 @Override
                 public boolean onPreferenceChange(Preference preference, Object o) {
-                    Set<String> cals = preference.getSharedPreferences().getStringSet("enabled_calendars", null);
+                    Set<String> cals = (Set<String>) o;
 
                     if (cals != null) {
                         if (cals.contains("local_cal")) {
                             localSection.setEnabled(true);
                             prefs.edit()
                                     .putBoolean("local_cal_enabled", true)
-                                    .apply();
+                                    .commit();
                         } else {
                             localSection.setEnabled(false);
                             prefs.edit()
                                     .putBoolean("local_cal_enabled", false)
-                                    .apply();
+                                    .commit();
                         }
 
                         if (cals.contains("office_cal")) {
                             officeSection.setEnabled(true);
                             prefs.edit()
                                     .putBoolean("office_cal_enabled", true)
-                                    .apply();
+                                    .commit();
                         } else {
                             officeSection.setEnabled(false);
                             prefs.edit()
                                     .putBoolean("office_cal_enabled", false)
-                                    .apply();
+                                    .commit();
                         }
                         if (cals.contains("google_cal")) {
                             googleSection.setEnabled(true);
                             prefs.edit()
                                     .putBoolean("google_cal_enabled", true)
-                                    .apply();
+                                    .commit();
                         } else {
                             googleSection.setEnabled(false);
                             prefs.edit()
                                     .putBoolean("google_cal_enabled", false)
-                                    .apply();
+                                    .commit();
                         }
                     }else{
                         localSection.setEnabled(false);
                         prefs.edit()
                                 .putBoolean("local_cal_enabled", false)
-                                .apply();
+                                .commit();
                         officeSection.setEnabled(false);
                         prefs.edit()
                                 .putBoolean("office_cal_enabled", false)
-                                .apply();
+                                .commit();
                         googleSection.setEnabled(false);
                         prefs.edit()
                                 .putBoolean("google_cal_enabled", false)
-                                .apply();
+                                .commit();
                     }
-                    refreshScreen();
                     return true;
                 }
             });
@@ -187,48 +241,12 @@ public class SettingsActivity extends AppCompatActivity {
             });
         }
 
-        private void refreshScreen() {
-            setPreferenceScreen(null);
-            addPreferencesFromResource(R.xml.pref_general);
-        }
-
-        private void authGoogle() {
-
-            if (isDeviceOnline()) {
-                // Initialize credentials and service object.
-                mCredential = GoogleAccountCredential.usingOAuth2(
-                        getActivity().getApplicationContext(), Arrays.asList(GOOGLE_SCOPES))
-                        .setBackOff(new ExponentialBackOff());
-            } else {
-                Toast.makeText(getActivity(), "No Internet Access!", Toast.LENGTH_SHORT).show();
-            }
-
-        }
-
-
-        private void startSotonService() {
-            getActivity().startService(new Intent(getActivity(), SotonTimetableService.class));
-        }
-
-        private void stopSotonService(){
-            getActivity().sendBroadcast(new Intent().setAction("com.aliakseipilko.sotontimetable.stopsync"));
-        }
-
-        private void authOffice(){
-            pcApp = new PublicClientApplication(getActivity(), OFFICE_CLIENT_ID);
-            pcApp.acquireToken(getActivity(), OFFICE_SCOPES, getAuthInteractiveCallback());
-        }
-
         private AuthenticationCallback getAuthInteractiveCallback() {
             return new AuthenticationCallback() {
                 @Override
                 public void onSuccess(AuthenticationResult authenticationResult) {
                     /* Successfully got a token, call graph now */
                     Toast.makeText(getActivity(), "Successfully Signed In!", Toast.LENGTH_SHORT).show();
-
-
-                    /* Store the auth result */
-                    authResult = authenticationResult;
                     setToken(authenticationResult.getAccessToken());
                 }
 
@@ -250,11 +268,34 @@ public class SettingsActivity extends AppCompatActivity {
             };
         }
 
+        private void authOffice() {
+            pcApp = new PublicClientApplication(getActivity().getApplicationContext(),
+                    OFFICE_CLIENT_ID);
+            pcApp.acquireToken(getActivity(), OFFICE_SCOPES, getAuthInteractiveCallback());
+        }
+
         private void setToken(String accessToken) {
             getActivity().getSharedPreferences(getActivity().getPackageName(), MODE_PRIVATE)
                     .edit()
                     .putString("office_access_token", accessToken)
                     .apply();
+        }
+
+        /* END OFFICE AUTH */
+
+        /* GOOGLE AUTH */
+
+        private void authGoogle() {
+
+            if (isDeviceOnline()) {
+                // Initialize credentials and service object.
+                mCredential = GoogleAccountCredential.usingOAuth2(
+                        getActivity().getApplicationContext(), Arrays.asList(GOOGLE_SCOPES))
+                        .setBackOff(new ExponentialBackOff());
+            } else {
+                Toast.makeText(getActivity(), "No Internet Access!", Toast.LENGTH_SHORT).show();
+            }
+
         }
 
         /**
@@ -436,5 +477,6 @@ public class SettingsActivity extends AppCompatActivity {
             dialog.show();
         }
 
+        /* END GOOGLE AUTH */
     }
 }
