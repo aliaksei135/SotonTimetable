@@ -1,5 +1,7 @@
 package com.aliakseipilko.sotontimetable;
 
+import static android.support.v4.app.NotificationCompat.DEFAULT_ALL;
+
 import android.annotation.SuppressLint;
 import android.app.AlarmManager;
 import android.app.PendingIntent;
@@ -68,6 +70,8 @@ import java.util.Collections;
 import java.util.List;
 
 import javax.net.ssl.HttpsURLConnection;
+
+import br.com.goncalves.pugnotification.notification.PugNotification;
 
 
 public class SotonTimetableService extends JobIntentService {
@@ -158,7 +162,7 @@ public class SotonTimetableService extends JobIntentService {
             }
             if (prefs.getBoolean("google_cal_enabled", false)) {
                 List<com.google.api.services.calendar.model.Event> events = parseJsonToGoogle(json);
-
+                addEventsToGoogle(events);
             }
         } catch (IOException e) {
             e.printStackTrace();
@@ -332,13 +336,28 @@ public class SotonTimetableService extends JobIntentService {
                     new JsonBatchCallback<com.google.api.services.calendar.model.Event>() {
                         @Override
                         public void onFailure(GoogleJsonError e, HttpHeaders responseHeaders) {
-                            //TODO Error notif
+                            PugNotification.with(getApplicationContext())
+                                    .load()
+                                    .title("Google Sync Failed")
+                                    .message(e.getMessage())
+                                    .flags(DEFAULT_ALL)
+                                    .click(SettingsActivity.class)
+                                    //.largeIcon(// TODO Add icon)
+                                    .simple()
+                                    .build();
                         }
 
                         @Override
                         public void onSuccess(com.google.api.services.calendar.model.Event event,
                                 HttpHeaders responseHeaders) {
-                            //TODO Yay it worked!
+                            PugNotification.with(getApplicationContext())
+                                    .load()
+                                    .title("Google Sync Complete!")
+                                    .message("Your Uni Timetable is now on your Google Calendar")
+                                    .flags(DEFAULT_ALL)
+                                    //.largeIcon(// TODO Add icon)
+                                    .simple()
+                                    .build();
                         }
                     });
         }
@@ -349,8 +368,6 @@ public class SotonTimetableService extends JobIntentService {
             @Override
             public void onSuccess(final AuthenticationResult authenticationResult) {
                 /* Successfully got a token, call Graph now */
-                Log.d(TAG, "Successfully authenticated");
-
 
                 IClientConfig clientConfig = DefaultClientConfig.createWithAuthenticationProvider(
                         new IAuthenticationProvider() {
@@ -374,6 +391,15 @@ public class SotonTimetableService extends JobIntentService {
                             .post(e);
                 }
 
+                PugNotification.with(getApplicationContext())
+                        .load()
+                        .title("Office Sync Complete!")
+                        .message("Your Uni Timetable is now on your Office Calendar")
+                        .flags(DEFAULT_ALL)
+                        //.largeIcon(// TODO Add icon)
+                        .simple()
+                        .build();
+
             }
 
             @Override
@@ -387,7 +413,15 @@ public class SotonTimetableService extends JobIntentService {
                     /* Exception when communicating with the STS, likely config issue */
                 } else if (exception instanceof MsalUiRequiredException) {
                     /* Tokens expired or no session, retry with interactive */
-                    //TODO Make notification to relogin with ui context
+                    PugNotification.with(getApplicationContext())
+                            .load()
+                            .title("Office Sync Failed")
+                            .message("You need to login in again :(")
+                            .flags(DEFAULT_ALL)
+                            .click(SettingsActivity.class)
+                            //.largeIcon(// TODO Add icon)
+                            .simple()
+                            .build();
                 }
             }
 
