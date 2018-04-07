@@ -39,6 +39,7 @@ public class LoginPreference extends DialogPreference {
             a.recycle();
         }
         setPositiveButtonText("Login");
+        setDialogLayoutResource(R.layout.login_preference);
     }
 
     @Override
@@ -46,6 +47,8 @@ public class LoginPreference extends DialogPreference {
         super.onBindDialogView(view);
         login = view.findViewById(R.id.loginpref_login);
         password = view.findViewById(R.id.loginpref_password);
+        login.setText(getSharedPreferences().getString(login_key, null));
+        password.setText(getSharedPreferences().getString(password_key, null));
     }
 
     @Override

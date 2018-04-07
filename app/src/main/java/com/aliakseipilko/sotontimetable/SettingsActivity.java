@@ -13,6 +13,7 @@ import android.os.Bundle;
 import android.preference.Preference;
 import android.preference.PreferenceFragment;
 import android.support.annotation.NonNull;
+import android.support.v7.app.AppCompatActivity;
 import android.widget.Toast;
 
 import com.google.android.gms.common.ConnectionResult;
@@ -36,16 +37,12 @@ import pub.devrel.easypermissions.AfterPermissionGranted;
 import pub.devrel.easypermissions.EasyPermissions;
 
 
-public class SettingsActivity extends AppCompatPreferenceActivity {
+public class SettingsActivity extends AppCompatActivity {
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-    }
-
-    protected boolean isValidFragment(String fragmentName) {
-        return PreferenceFragment.class.getName().equals(fragmentName)
-                || GeneralPreferenceFragment.class.getName().equals(fragmentName);
+        setContentView(R.layout.activity_settings);
     }
 
     public static class GeneralPreferenceFragment extends PreferenceFragment {
@@ -68,9 +65,6 @@ public class SettingsActivity extends AppCompatPreferenceActivity {
         public void onCreate(Bundle savedInstanceState) {
             final SharedPreferences prefs = getActivity().getSharedPreferences(getActivity().getPackageName(), MODE_PRIVATE);
             super.onCreate(savedInstanceState);
-
-            pcApp = new PublicClientApplication(getActivity(), OFFICE_CLIENT_ID);
-
 
             addPreferencesFromResource(R.xml.pref_general);
 
@@ -161,6 +155,7 @@ public class SettingsActivity extends AppCompatPreferenceActivity {
                                 .putBoolean("google_cal_enabled", false)
                                 .apply();
                     }
+                    refreshScreen();
                     return true;
                 }
             });
@@ -192,6 +187,11 @@ public class SettingsActivity extends AppCompatPreferenceActivity {
             });
         }
 
+        private void refreshScreen() {
+            setPreferenceScreen(null);
+            addPreferencesFromResource(R.xml.pref_general);
+        }
+
         private void authGoogle() {
 
             if (isDeviceOnline()) {
@@ -215,6 +215,7 @@ public class SettingsActivity extends AppCompatPreferenceActivity {
         }
 
         private void authOffice(){
+            pcApp = new PublicClientApplication(getActivity(), OFFICE_CLIENT_ID);
             pcApp.acquireToken(getActivity(), OFFICE_SCOPES, getAuthInteractiveCallback());
         }
 

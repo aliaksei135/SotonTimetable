@@ -54,6 +54,10 @@
 		android:key="google_cal_section"
 		android:title="Google Calendar">
 
+		<Preference
+			android:key="google_signin"
+			android:title="Google Sign In"/>
+
 		<ListPreference
 			android:defaultValue="Timetable"
 			android:key="google_cal_id"
