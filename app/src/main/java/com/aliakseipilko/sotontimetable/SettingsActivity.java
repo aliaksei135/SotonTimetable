@@ -85,7 +85,7 @@ public class SettingsActivity extends AppCompatActivity {
         // Brace yourself for a monolithic method
         @Override
         public void onCreate(Bundle savedInstanceState) {
-            //Crude hack
+            //Crude hack to get the same prefs
             final SharedPreferences prefs = getActivity().getSharedPreferences(
                     getActivity().getPackageName() + "_preferences", MODE_PRIVATE);
             super.onCreate(savedInstanceState);
@@ -290,6 +290,7 @@ public class SettingsActivity extends AppCompatActivity {
                 mCredential = GoogleAccountCredential.usingOAuth2(
                         getActivity().getApplicationContext(), Arrays.asList(GOOGLE_SCOPES))
                         .setBackOff(new ExponentialBackOff());
+                getResultsFromApi();
             } else {
                 Toast.makeText(getActivity(), "No Internet Access!", Toast.LENGTH_SHORT).show();
             }
@@ -327,7 +328,8 @@ public class SettingsActivity extends AppCompatActivity {
                         if (accountName != null) {
                             SharedPreferences settings =
                                     getActivity().getSharedPreferences(
-                                            getActivity().getPackageName(), MODE_PRIVATE);
+                                            getActivity().getPackageName() + "_preferences",
+                                            MODE_PRIVATE);
                             SharedPreferences.Editor editor = settings.edit();
                             editor.putString(PREF_ACCOUNT_NAME, accountName);
                             editor.apply();
@@ -376,7 +378,7 @@ public class SettingsActivity extends AppCompatActivity {
             if (EasyPermissions.hasPermissions(
                     getActivity(), Manifest.permission.GET_ACCOUNTS)) {
                 String accountName = getActivity().getSharedPreferences(
-                        getActivity().getPackageName(), MODE_PRIVATE)
+                        getActivity().getPackageName() + "_preferences", MODE_PRIVATE)
                         .getString(PREF_ACCOUNT_NAME, null);
                 if (accountName != null) {
                     mCredential.setSelectedAccountName(accountName);

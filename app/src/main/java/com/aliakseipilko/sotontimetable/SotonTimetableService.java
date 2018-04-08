@@ -2,6 +2,7 @@ package com.aliakseipilko.sotontimetable;
 
 import static android.support.v4.app.NotificationCompat.DEFAULT_ALL;
 
+import android.accounts.Account;
 import android.annotation.SuppressLint;
 import android.app.AlarmManager;
 import android.app.PendingIntent;
@@ -17,18 +18,28 @@ import android.util.Log;
 
 import com.aliakseipilko.sotontimetable.models.soton.EventJsonModel;
 import com.aliakseipilko.sotontimetable.models.soton.TimetableJsonModel;
+import com.google.android.gms.auth.GoogleAuthException;
+import com.google.android.gms.auth.GoogleAuthUtil;
 import com.google.api.client.extensions.android.http.AndroidHttp;
 import com.google.api.client.googleapis.batch.BatchRequest;
 import com.google.api.client.googleapis.batch.json.JsonBatchCallback;
+import com.google.api.client.googleapis.extensions.android.accounts.GoogleAccountManager;
 import com.google.api.client.googleapis.extensions.android.gms.auth.GoogleAccountCredential;
 import com.google.api.client.googleapis.json.GoogleJsonError;
+import com.google.api.client.http.HttpExecuteInterceptor;
 import com.google.api.client.http.HttpHeaders;
+import com.google.api.client.http.HttpRequest;
+import com.google.api.client.http.HttpRequestInitializer;
+import com.google.api.client.http.HttpResponse;
 import com.google.api.client.http.HttpTransport;
+import com.google.api.client.http.HttpUnsuccessfulResponseHandler;
 import com.google.api.client.json.JsonFactory;
 import com.google.api.client.json.jackson2.JacksonFactory;
+import com.google.api.client.util.Beta;
 import com.google.api.client.util.DateTime;
+import com.google.api.services.calendar.CalendarScopes;
+import com.google.api.services.calendar.model.CalendarListEntry;
 import com.google.api.services.calendar.model.EventDateTime;
-import com.google.api.services.calendar.model.EventReminder;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import com.microsoft.graph.authentication.IAuthenticationProvider;
@@ -66,7 +77,6 @@ import java.net.URL;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Calendar;
-import java.util.Collections;
 import java.util.Date;
 import java.util.List;
 
@@ -77,9 +87,11 @@ import br.com.goncalves.pugnotification.notification.PugNotification;
 
 public class SotonTimetableService extends JobIntentService {
 
-    final static String CLIENT_ID = "ac6b7a81-b8e2-4a9b-9689-8a5b0be0ac2e";
-    final static String SCOPES[] = {"https://graph.microsoft.com/Calendar.ReadWrite",
-    };
+    final static String OFFICE_CLIENT_ID = "ac6b7a81-b8e2-4a9b-9689-8a5b0be0ac2e";
+    final static String OFFICE_SCOPES[] = {"https://graph.microsoft.com/Calendar.ReadWrite"};
+
+    private static final String[] GOOGLE_SCOPES = {CalendarScopes.CALENDAR,};
+
     private static final String AUTH_ENDPOINT = "https://my.southampton.ac.uk/campusm/sso/ldap/100";
     private static final String EVENTS_ENDPOINT = "https://my.southampton.ac.uk/campusm/sso/calendar/course_timetable/";
     private static final String TAG = "SotonTimetableService";
@@ -167,6 +179,26 @@ public class SotonTimetableService extends JobIntentService {
             }
         } catch (IOException e) {
             e.printStackTrace();
+            PugNotification.with(getApplicationContext())
+                    .load()
+                    .title("Timetable Sync Failed")
+                    .message("Your SUSSED login didn't work, make sure it's right!")
+                    .flags(DEFAULT_ALL)
+                    .click(SettingsActivity.class)
+                    .smallIcon(R.drawable.pugnotification_ic_launcher)
+                    .simple()
+                    .build();
+        } catch (GoogleAuthException e) {
+            e.printStackTrace();
+            PugNotification.with(getApplicationContext())
+                    .load()
+                    .title("Google Sync Failed")
+                    .message(e.getMessage())
+                    .flags(DEFAULT_ALL)
+                    .click(SettingsActivity.class)
+                    .smallIcon(R.drawable.pugnotification_ic_launcher)
+                    .simple()
+                    .build();
         }
     }
 
@@ -198,6 +230,7 @@ public class SotonTimetableService extends JobIntentService {
             @SuppressLint("SimpleDateFormat")
             SimpleDateFormat sdf = new SimpleDateFormat("YYYYDDD");
             String stamp = sdf.format(cal);
+            stamp = "2018117";
 
             URL eventsURL = new URL(EVENTS_ENDPOINT + stamp);
             HttpsURLConnection eventsConn = (HttpsURLConnection) eventsURL.openConnection();
@@ -285,11 +318,13 @@ public class SotonTimetableService extends JobIntentService {
 
             EventDateTime end = new EventDateTime();
             end.setDateTime(new DateTime(sdf.format(event.getEnd())));
+            end.setTimeZone("Europe/London");
             newEvent.setEnd(end);
 
-            newEvent.setReminders(
-                    new com.google.api.services.calendar.model.Event.Reminders().setOverrides(
-                            Collections.singletonList(new EventReminder().setMinutes(20))));
+            newEvent.setVisibility("default");
+//            newEvent.setReminders(
+//                    new com.google.api.services.calendar.model.Event.Reminders().setOverrides(
+//                            Collections.singletonList(new EventReminder().setMinutes(20))));
 
             parsedEvents.add(newEvent);
         }
@@ -312,7 +347,7 @@ public class SotonTimetableService extends JobIntentService {
 
     private void addEventsToOffice(List<Event> parsedEvents) {
         try {
-            pcApp.acquireTokenSilentAsync(SCOPES, pcApp.getUsers().get(0),
+            pcApp.acquireTokenSilentAsync(OFFICE_SCOPES, pcApp.getUsers().get(0),
                     getAuthSilentCallback(parsedEvents));
         } catch (MsalClientException e) {
             e.printStackTrace();
@@ -321,47 +356,72 @@ public class SotonTimetableService extends JobIntentService {
     }
 
     private void addEventsToGoogle(List<com.google.api.services.calendar.model.Event> parsedEvents)
-            throws IOException {
+            throws IOException, GoogleAuthException {
+        Account acc = new Account(prefs.getString("accountName", null),
+                GoogleAccountManager.ACCOUNT_TYPE);
+        final String token = GoogleAuthUtil.getTokenWithNotification(getApplicationContext(), acc,
+                "oauth2:" + GOOGLE_SCOPES[0], null);
+        HttpRequestInitializer initializer = new HttpRequestInitializer() {
+            @Override
+            public void initialize(HttpRequest request) {
+                RequestHandler handler = new RequestHandler(token);
+                request.setInterceptor(handler);
+                request.setUnsuccessfulResponseHandler(handler);
+
+            }
+        };
         HttpTransport transport = AndroidHttp.newCompatibleTransport();
         JsonFactory jsonFactory = JacksonFactory.getDefaultInstance();
         com.google.api.services.calendar.Calendar mService =
                 new com.google.api.services.calendar.Calendar.Builder(
-                        transport, jsonFactory, googleCredential)
+                        transport, jsonFactory, initializer)
                         .setApplicationName("SotonCal")
                         .build();
 
         BatchRequest batch = mService.batch();
+        List<CalendarListEntry> calList = mService.calendarList().list().setMinAccessRole(
+                "writer").execute().getItems();
+        String calId = null;
+        for (CalendarListEntry it : calList) {
+            if (it.getSummary().equals("University Timetable")) {
+                calId = it.getId();
+            }
+        }
+        JsonBatchCallback<com.google.api.services.calendar.model.Event> callback =
+                new JsonBatchCallback<com.google.api.services.calendar.model.Event>() {
+                    @Override
+                    public void onFailure(GoogleJsonError e, HttpHeaders responseHeaders) {
+                        Log.e("Service", e.getMessage());
+                        PugNotification.with(getApplicationContext())
+                                .load()
+                                .title("Google Sync Failed")
+                                .message(e.getMessage())
+                                .flags(DEFAULT_ALL)
+                                .click(SettingsActivity.class)
+                                .smallIcon(R.drawable.pugnotification_ic_launcher)
+                                .simple()
+                                .build();
+                    }
+
+                    @Override
+                    public void onSuccess(com.google.api.services.calendar.model.Event event,
+                            HttpHeaders responseHeaders) {
+                        PugNotification.with(getApplicationContext())
+                                .load()
+                                .title("Google Sync Complete!")
+                                .message("Your Uni Timetable is now on your Google Calendar")
+                                .flags(DEFAULT_ALL)
+                                .smallIcon(R.drawable.pugnotification_ic_launcher)
+                                .simple()
+                                .build();
+                    }
+                };
         for (com.google.api.services.calendar.model.Event event : parsedEvents) {
             //TODO support custom calendar id
-            mService.events().insert("University Timetable", event).queue(batch,
-                    new JsonBatchCallback<com.google.api.services.calendar.model.Event>() {
-                        @Override
-                        public void onFailure(GoogleJsonError e, HttpHeaders responseHeaders) {
-                            PugNotification.with(getApplicationContext())
-                                    .load()
-                                    .title("Google Sync Failed")
-                                    .message(e.getMessage())
-                                    .flags(DEFAULT_ALL)
-                                    .click(SettingsActivity.class)
-                                    //.largeIcon(// TODO Add icon)
-                                    .simple()
-                                    .build();
-                        }
-
-                        @Override
-                        public void onSuccess(com.google.api.services.calendar.model.Event event,
-                                HttpHeaders responseHeaders) {
-                            PugNotification.with(getApplicationContext())
-                                    .load()
-                                    .title("Google Sync Complete!")
-                                    .message("Your Uni Timetable is now on your Google Calendar")
-                                    .flags(DEFAULT_ALL)
-                                    //.largeIcon(// TODO Add icon)
-                                    .simple()
-                                    .build();
-                        }
-                    });
+            mService.events().insert(calId, event).queue(batch, callback);
+//            mService.events().insert(calId, event).execute();
         }
+        batch.execute();
     }
 
     private AuthenticationCallback getAuthSilentCallback(final List<Event> parsedEvents) {
@@ -432,5 +492,33 @@ public class SotonTimetableService extends JobIntentService {
                 Log.d(TAG, "User cancelled login.");
             }
         };
+    }
+
+    @Beta
+    class RequestHandler implements HttpExecuteInterceptor, HttpUnsuccessfulResponseHandler {
+
+        /** Whether we've received a 401 error code indicating the token is invalid. */
+        boolean received401;
+        String token;
+
+        public RequestHandler(String token) {
+            this.token = token;
+        }
+
+        @Override
+        public void intercept(HttpRequest request) {
+            request.getHeaders().setAuthorization("Bearer " + token);
+        }
+
+        @Override
+        public boolean handleResponse(
+                HttpRequest request, HttpResponse response, boolean supportsRetry) {
+            if (response.getStatusCode() == 401 && !received401) {
+                received401 = true;
+                GoogleAuthUtil.invalidateToken(getApplicationContext(), token);
+                return true;
+            }
+            return false;
+        }
     }
 }
