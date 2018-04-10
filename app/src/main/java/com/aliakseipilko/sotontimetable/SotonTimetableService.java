@@ -40,6 +40,7 @@ import com.google.api.client.util.DateTime;
 import com.google.api.services.calendar.CalendarScopes;
 import com.google.api.services.calendar.model.CalendarListEntry;
 import com.google.api.services.calendar.model.EventDateTime;
+import com.google.api.services.calendar.model.EventReminder;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import com.microsoft.graph.authentication.IAuthenticationProvider;
@@ -76,6 +77,7 @@ import java.net.CookieManager;
 import java.net.URL;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Calendar;
 import java.util.Date;
 import java.util.List;
@@ -88,7 +90,7 @@ import br.com.goncalves.pugnotification.notification.PugNotification;
 public class SotonTimetableService extends JobIntentService {
 
     final static String OFFICE_CLIENT_ID = "ac6b7a81-b8e2-4a9b-9689-8a5b0be0ac2e";
-    final static String OFFICE_SCOPES[] = {"https://graph.microsoft.com/Calendar.ReadWrite"};
+    final static String OFFICE_SCOPES[] = {"https://graph.microsoft.com/Calendars.ReadWrite"};
 
     private static final String[] GOOGLE_SCOPES = {CalendarScopes.CALENDAR,};
 
@@ -321,10 +323,17 @@ public class SotonTimetableService extends JobIntentService {
             end.setTimeZone("Europe/London");
             newEvent.setEnd(end);
 
-            newEvent.setVisibility("default");
-//            newEvent.setReminders(
-//                    new com.google.api.services.calendar.model.Event.Reminders().setOverrides(
-//                            Collections.singletonList(new EventReminder().setMinutes(20))));
+            newEvent.setReminders(
+                    new com.google.api.services.calendar.model.Event.Reminders()
+                            .setUseDefault(false)
+                            .setOverrides(
+                                    Arrays.asList(
+                                            new EventReminder().setMinutes(20).setMethod("popup")
+                                    )
+                            )
+            );
+
+            newEvent.setAttendeesOmitted(true);
 
             parsedEvents.add(newEvent);
         }
@@ -347,6 +356,7 @@ public class SotonTimetableService extends JobIntentService {
 
     private void addEventsToOffice(List<Event> parsedEvents) {
         try {
+            pcApp = new PublicClientApplication(getApplicationContext(), OFFICE_CLIENT_ID);
             pcApp.acquireTokenSilentAsync(OFFICE_SCOPES, pcApp.getUsers().get(0),
                     getAuthSilentCallback(parsedEvents));
         } catch (MsalClientException e) {
@@ -429,6 +439,7 @@ public class SotonTimetableService extends JobIntentService {
             @Override
             public void onSuccess(final AuthenticationResult authenticationResult) {
                 /* Successfully got a token, call Graph now */
+                //TODO URGENT Put all this in an AsyncTask
 
                 IClientConfig clientConfig = DefaultClientConfig.createWithAuthenticationProvider(
                         new IAuthenticationProvider() {
@@ -513,6 +524,7 @@ public class SotonTimetableService extends JobIntentService {
         @Override
         public boolean handleResponse(
                 HttpRequest request, HttpResponse response, boolean supportsRetry) {
+            Log.i("Service", response.getStatusCode() + response.getStatusMessage());
             if (response.getStatusCode() == 401 && !received401) {
                 received401 = true;
                 GoogleAuthUtil.invalidateToken(getApplicationContext(), token);
@@ -522,3 +534,4 @@ public class SotonTimetableService extends JobIntentService {
         }
     }
 }
+

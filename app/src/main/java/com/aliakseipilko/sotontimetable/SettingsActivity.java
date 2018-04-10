@@ -54,7 +54,7 @@ public class SettingsActivity extends AppCompatActivity {
     public static class GeneralPreferenceFragment extends PreferenceFragment {
 
         final static String OFFICE_CLIENT_ID = "ac6b7a81-b8e2-4a9b-9689-8a5b0be0ac2e";
-        final static String OFFICE_SCOPES[] = {"https://graph.microsoft.com/Calendar.ReadWrite"};
+        final static String OFFICE_SCOPES[] = {"https://graph.microsoft.com/Calendars.ReadWrite"};
         final static String MSGRAPH_URL = "https://graph.microsoft.com/v1.0/me";
         //Only instantiated for auth
         @SuppressLint("StaticFieldLeak")
