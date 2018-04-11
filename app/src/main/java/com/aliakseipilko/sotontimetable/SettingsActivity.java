@@ -29,8 +29,6 @@ import com.microsoft.identity.client.MsalException;
 import com.microsoft.identity.client.MsalServiceException;
 import com.microsoft.identity.client.PublicClientApplication;
 
-import org.greenrobot.eventbus.EventBus;
-
 import java.util.Arrays;
 import java.util.Set;
 
@@ -358,8 +356,6 @@ public class SettingsActivity extends AppCompatActivity {
                 acquireGooglePlayServices();
             } else if (mCredential.getSelectedAccountName() == null) {
                 chooseAccount();
-            } else {
-                EventBus.getDefault().post(mCredential);
             }
         }
 

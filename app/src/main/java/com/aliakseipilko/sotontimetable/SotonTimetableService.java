@@ -12,6 +12,7 @@ import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.SharedPreferences;
 import android.net.Uri;
+import android.os.AsyncTask;
 import android.support.annotation.NonNull;
 import android.support.v4.app.JobIntentService;
 import android.util.Log;
@@ -24,7 +25,6 @@ import com.google.api.client.extensions.android.http.AndroidHttp;
 import com.google.api.client.googleapis.batch.BatchRequest;
 import com.google.api.client.googleapis.batch.json.JsonBatchCallback;
 import com.google.api.client.googleapis.extensions.android.accounts.GoogleAccountManager;
-import com.google.api.client.googleapis.extensions.android.gms.auth.GoogleAccountCredential;
 import com.google.api.client.googleapis.json.GoogleJsonError;
 import com.google.api.client.http.HttpExecuteInterceptor;
 import com.google.api.client.http.HttpHeaders;
@@ -63,10 +63,6 @@ import com.microsoft.identity.client.MsalServiceException;
 import com.microsoft.identity.client.MsalUiRequiredException;
 import com.microsoft.identity.client.PublicClientApplication;
 
-import org.greenrobot.eventbus.EventBus;
-import org.greenrobot.eventbus.Subscribe;
-import org.greenrobot.eventbus.ThreadMode;
-
 import java.io.BufferedWriter;
 import java.io.IOException;
 import java.io.InputStreamReader;
@@ -95,7 +91,8 @@ public class SotonTimetableService extends JobIntentService {
     private static final String[] GOOGLE_SCOPES = {CalendarScopes.CALENDAR,};
 
     private static final String AUTH_ENDPOINT = "https://my.southampton.ac.uk/campusm/sso/ldap/100";
-    private static final String EVENTS_ENDPOINT = "https://my.southampton.ac.uk/campusm/sso/calendar/course_timetable/";
+    private static final String EVENTS_ENDPOINT =
+            "https://my.southampton.ac.uk/campusm/sso/calendar/course_timetable/";
     private static final String TAG = "SotonTimetableService";
     SharedPreferences prefs;
     PublicClientApplication pcApp;
@@ -108,19 +105,17 @@ public class SotonTimetableService extends JobIntentService {
         @Override
         public void onReceive(Context context, Intent intent) {
             String action = intent.getAction();
-            if(action.equals("com.aliakseipilko.sotontimetable.synctimetable")) {
+            if (action.equals("com.aliakseipilko.sotontimetable.synctimetable")) {
                 SotonTimetableService.enqueueWork(
                         getApplicationContext(),
                         SotonTimetableService.class,
                         1001,
                         intent);
-            }else if (action.equals("com.aliakseipilko.sotontimetable.stopsync")){
+            } else if (action.equals("com.aliakseipilko.sotontimetable.stopsync")) {
                 onDestroy();
             }
         }
     };
-
-    private GoogleAccountCredential googleCredential;
 
     @Override
     public void onCreate() {
@@ -131,8 +126,6 @@ public class SotonTimetableService extends JobIntentService {
         CookieManager cookieManager = new CookieManager();
         CookieHandler.setDefault(cookieManager);
 
-        EventBus.getDefault().register(this);
-
         IntentFilter filter = new IntentFilter();
         filter.addAction("com.aliakseipilko.sotontimetable.synctimetable");
         filter.addAction("com.aliakseipilko.sotontimetable.stopsync");
@@ -140,12 +133,13 @@ public class SotonTimetableService extends JobIntentService {
         scheduleNextExec();
     }
 
-    private void scheduleNextExec(){
+    private void scheduleNextExec() {
         Intent i = new Intent(getApplicationContext(), SotonTimetableService.class);
         i.setAction("com.aliakseipilko.sotontimetable.synctimetable");
 
         am = (AlarmManager) getSystemService(Context.ALARM_SERVICE);
-        pi = PendingIntent.getBroadcast(getApplicationContext(), 2053, i, PendingIntent.FLAG_UPDATE_CURRENT);
+        pi = PendingIntent.getBroadcast(getApplicationContext(), 2053, i,
+                PendingIntent.FLAG_UPDATE_CURRENT);
         Calendar trigger = Calendar.getInstance();
         trigger.set(Calendar.DAY_OF_WEEK, Calendar.SUNDAY);
         trigger.set(Calendar.HOUR_OF_DAY, 8);
@@ -155,13 +149,13 @@ public class SotonTimetableService extends JobIntentService {
         interval.add(Calendar.DATE, 7);
 
 
-        am.setInexactRepeating(AlarmManager.RTC, trigger.getTimeInMillis(), interval.getTimeInMillis(), pi);
+        am.setInexactRepeating(AlarmManager.RTC, trigger.getTimeInMillis(),
+                interval.getTimeInMillis(), pi);
     }
 
     @Override
     public void onDestroy() {
         super.onDestroy();
-        EventBus.getDefault().unregister(this);
         unregisterReceiver(receiver);
         am.cancel(pi);
     }
@@ -250,7 +244,7 @@ public class SotonTimetableService extends JobIntentService {
             connection.disconnect();
             return timetable;
 
-        }else{
+        } else {
             connection.disconnect();
             throw new IOException("Auth Failed, bad login?");
         }
@@ -341,19 +335,6 @@ public class SotonTimetableService extends JobIntentService {
         return parsedEvents;
     }
 
-    @Subscribe(threadMode = ThreadMode.BACKGROUND)
-    public void onOfficeAuthEvent(OfficeAuthEvent event) {
-        prefs.edit()
-                .putString("office_access_token", event.getAccessToken())
-                .apply();
-        this.pcApp = event.getPcApp();
-    }
-
-    @Subscribe(threadMode = ThreadMode.BACKGROUND)
-    public void onGoogleCredential(GoogleAccountCredential googleCredential) {
-        this.googleCredential = googleCredential;
-    }
-
     private void addEventsToOffice(List<Event> parsedEvents) {
         try {
             pcApp = new PublicClientApplication(getApplicationContext(), OFFICE_CLIENT_ID);
@@ -361,11 +342,100 @@ public class SotonTimetableService extends JobIntentService {
                     getAuthSilentCallback(parsedEvents));
         } catch (MsalClientException e) {
             e.printStackTrace();
-
+        } catch (IndexOutOfBoundsException e) {
+            PugNotification.with(getApplicationContext())
+                    .load()
+                    .title("Office Sync Failed")
+                    .message("You forgot to sign in!")
+                    .flags(DEFAULT_ALL)
+                    .click(SettingsActivity.class)
+                    .smallIcon(R.drawable.pugnotification_ic_launcher)
+                    .simple()
+                    .build();
         }
     }
 
-    private void addEventsToGoogle(List<com.google.api.services.calendar.model.Event> parsedEvents)
+    private AuthenticationCallback getAuthSilentCallback(final List<Event> parsedEvents) {
+        return new AuthenticationCallback() {
+            @Override
+            public void onSuccess(final AuthenticationResult authenticationResult) {
+                /* Successfully got a token, call Graph now */
+                IClientConfig clientConfig = DefaultClientConfig.createWithAuthenticationProvider(
+                        new IAuthenticationProvider() {
+                            @Override
+                            public void authenticateRequest(IHttpRequest request) {
+                                request.addHeader("Authorization", "Bearer "
+                                        + authenticationResult.getAccessToken());
+                            }
+                        });
+                mGraphServiceClient = new GraphServiceClient.Builder().fromConfig(
+                        clientConfig).buildClient();
+
+
+                final IEventCollectionRequestBuilder eventCollectionRequestBuilder =
+                        mGraphServiceClient.getMe()
+                                .getCalendars("University Timetable")
+                                .getEvents();
+
+                @SuppressLint("StaticFieldLeak")
+                class AddToOfficeTask extends AsyncTask<Void, Void, Void> {
+
+                    @Override
+                    protected Void doInBackground(Void... voids) {
+                        for (Event e : parsedEvents) {
+                            eventCollectionRequestBuilder.buildRequest()
+                                    .post(e);
+                        }
+                        return null;
+                    }
+                }
+
+                new AddToOfficeTask().execute();
+
+                PugNotification.with(getApplicationContext())
+                        .load()
+                        .title("Office Sync Complete!")
+                        .message("Your Uni Timetable is now on your Office Calendar")
+                        .flags(DEFAULT_ALL)
+                        .smallIcon(R.drawable.pugnotification_ic_launcher)
+                        .simple()
+                        .build();
+
+            }
+
+            @Override
+            public void onError(MsalException exception) {
+                /* Failed to acquireToken */
+                Log.d(TAG, "Authentication failed: " + exception.toString());
+
+                if (exception instanceof MsalClientException) {
+                    /* Exception inside MSAL, more info inside MsalError.java */
+                } else if (exception instanceof MsalServiceException) {
+                    /* Exception when communicating with the STS, likely config issue */
+                } else if (exception instanceof MsalUiRequiredException) {
+                    /* Tokens expired or no session, retry with interactive */
+                    PugNotification.with(getApplicationContext())
+                            .load()
+                            .title("Office Sync Failed")
+                            .message("You need to login in again :(")
+                            .flags(DEFAULT_ALL)
+                            .click(SettingsActivity.class)
+                            .smallIcon(R.drawable.pugnotification_ic_launcher)
+                            .simple()
+                            .build();
+                }
+            }
+
+            @Override
+            public void onCancel() {
+                /* User cancelled the authentication */
+                Log.d(TAG, "User cancelled login.");
+            }
+        };
+    }
+
+    private void addEventsToGoogle(
+            final List<com.google.api.services.calendar.model.Event> parsedEvents)
             throws IOException, GoogleAuthException {
         Account acc = new Account(prefs.getString("accountName", null),
                 GoogleAccountManager.ACCOUNT_TYPE);
@@ -382,13 +452,13 @@ public class SotonTimetableService extends JobIntentService {
         };
         HttpTransport transport = AndroidHttp.newCompatibleTransport();
         JsonFactory jsonFactory = JacksonFactory.getDefaultInstance();
-        com.google.api.services.calendar.Calendar mService =
+        final com.google.api.services.calendar.Calendar mService =
                 new com.google.api.services.calendar.Calendar.Builder(
                         transport, jsonFactory, initializer)
                         .setApplicationName("SotonCal")
                         .build();
 
-        BatchRequest batch = mService.batch();
+        final BatchRequest batch = mService.batch();
         List<CalendarListEntry> calList = mService.calendarList().list().setMinAccessRole(
                 "writer").execute().getItems();
         String calId = null;
@@ -397,7 +467,7 @@ public class SotonTimetableService extends JobIntentService {
                 calId = it.getId();
             }
         }
-        JsonBatchCallback<com.google.api.services.calendar.model.Event> callback =
+        final JsonBatchCallback<com.google.api.services.calendar.model.Event> callback =
                 new JsonBatchCallback<com.google.api.services.calendar.model.Event>() {
                     @Override
                     public void onFailure(GoogleJsonError e, HttpHeaders responseHeaders) {
@@ -426,83 +496,26 @@ public class SotonTimetableService extends JobIntentService {
                                 .build();
                     }
                 };
-        for (com.google.api.services.calendar.model.Event event : parsedEvents) {
-            //TODO support custom calendar id
-            mService.events().insert(calId, event).queue(batch, callback);
-//            mService.events().insert(calId, event).execute();
+
+        final String finalCalId = calId;
+        class AddToGoogleTask extends AsyncTask<Void, Void, Void> {
+
+            @Override
+            protected Void doInBackground(Void... voids) {
+                try {
+                    for (com.google.api.services.calendar.model.Event event : parsedEvents) {
+                        //TODO support custom calendar id
+                        mService.events().insert(finalCalId, event).queue(batch, callback);
+                    }
+                    batch.execute();
+                } catch (IOException e) {
+                    e.printStackTrace();
+                }
+                return null;
+            }
         }
-        batch.execute();
-    }
+        new AddToGoogleTask().execute();
 
-    private AuthenticationCallback getAuthSilentCallback(final List<Event> parsedEvents) {
-        return new AuthenticationCallback() {
-            @Override
-            public void onSuccess(final AuthenticationResult authenticationResult) {
-                /* Successfully got a token, call Graph now */
-                //TODO URGENT Put all this in an AsyncTask
-
-                IClientConfig clientConfig = DefaultClientConfig.createWithAuthenticationProvider(
-                        new IAuthenticationProvider() {
-                            @Override
-                            public void authenticateRequest(IHttpRequest request) {
-                                request.addHeader("Authorization", "Bearer "
-                                        + authenticationResult.getAccessToken());
-                            }
-                        });
-                mGraphServiceClient = new GraphServiceClient.Builder().fromConfig(
-                        clientConfig).buildClient();
-
-                IEventCollectionRequestBuilder eventCollectionRequestBuilder =
-                        mGraphServiceClient.getMe()
-                                //TODO Support Custom Calendar ID
-                                .getCalendars("University Timetable")
-                                .getEvents();
-
-                for (Event e : parsedEvents) {
-                    eventCollectionRequestBuilder.buildRequest()
-                            .post(e);
-                }
-
-                PugNotification.with(getApplicationContext())
-                        .load()
-                        .title("Office Sync Complete!")
-                        .message("Your Uni Timetable is now on your Office Calendar")
-                        .flags(DEFAULT_ALL)
-                        //.largeIcon(// TODO Add icon)
-                        .simple()
-                        .build();
-
-            }
-
-            @Override
-            public void onError(MsalException exception) {
-                /* Failed to acquireToken */
-                Log.d(TAG, "Authentication failed: " + exception.toString());
-
-                if (exception instanceof MsalClientException) {
-                    /* Exception inside MSAL, more info inside MsalError.java */
-                } else if (exception instanceof MsalServiceException) {
-                    /* Exception when communicating with the STS, likely config issue */
-                } else if (exception instanceof MsalUiRequiredException) {
-                    /* Tokens expired or no session, retry with interactive */
-                    PugNotification.with(getApplicationContext())
-                            .load()
-                            .title("Office Sync Failed")
-                            .message("You need to login in again :(")
-                            .flags(DEFAULT_ALL)
-                            .click(SettingsActivity.class)
-                            //.largeIcon(// TODO Add icon)
-                            .simple()
-                            .build();
-                }
-            }
-
-            @Override
-            public void onCancel() {
-                /* User cancelled the authentication */
-                Log.d(TAG, "User cancelled login.");
-            }
-        };
     }
 
     @Beta
@@ -533,5 +546,6 @@ public class SotonTimetableService extends JobIntentService {
             return false;
         }
     }
+
 }
 
