@@ -44,6 +44,8 @@ import com.google.api.services.calendar.model.EventReminder;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import com.microsoft.graph.authentication.IAuthenticationProvider;
+import com.microsoft.graph.concurrency.ICallback;
+import com.microsoft.graph.core.ClientException;
 import com.microsoft.graph.core.DefaultClientConfig;
 import com.microsoft.graph.core.IClientConfig;
 import com.microsoft.graph.extensions.BodyType;
@@ -261,7 +263,7 @@ public class SotonTimetableService extends JobIntentService {
 
             ItemBody body = new ItemBody();
             body.content = event.getDesc1() + "\nTeacher: " + event.getTeacherName();
-            body.contentType = BodyType.text;
+            body.contentType = BodyType.html;
             newEvent.body = (body);
 
             Location loc = new Location();
@@ -274,12 +276,12 @@ public class SotonTimetableService extends JobIntentService {
 
             DateTimeTimeZone start = new DateTimeTimeZone();
             start.dateTime = sdf.format(event.getStart());
-            start.timeZone = "Europe/London";
+            start.timeZone = "UTC";
             newEvent.start = (start);
 
             DateTimeTimeZone end = new DateTimeTimeZone();
             end.dateTime = sdf.format(event.getEnd());
-            end.timeZone = "Europe/London";
+            end.timeZone = "UTC";
             newEvent.end = (end);
 
             newEvent.reminderMinutesBeforeStart = 20;
@@ -366,6 +368,7 @@ public class SotonTimetableService extends JobIntentService {
                             public void authenticateRequest(IHttpRequest request) {
                                 request.addHeader("Authorization", "Bearer "
                                         + authenticationResult.getAccessToken());
+                                request.addHeader("Content-Type", "application/json");
                             }
                         });
                 mGraphServiceClient = new GraphServiceClient.Builder().fromConfig(
@@ -374,7 +377,7 @@ public class SotonTimetableService extends JobIntentService {
 
                 final IEventCollectionRequestBuilder eventCollectionRequestBuilder =
                         mGraphServiceClient.getMe()
-                                .getCalendars("University Timetable")
+//                                .getCalendar()
                                 .getEvents();
 
                 @SuppressLint("StaticFieldLeak")
@@ -384,7 +387,37 @@ public class SotonTimetableService extends JobIntentService {
                     protected Void doInBackground(Void... voids) {
                         for (Event e : parsedEvents) {
                             eventCollectionRequestBuilder.buildRequest()
-                                    .post(e);
+                                    .post(e, new ICallback<Event>() {
+                                        @Override
+                                        public void success(Event event) {
+                                            PugNotification.with(getApplicationContext())
+                                                    .load()
+                                                    .title("Office Sync Complete!")
+                                                    .message(
+                                                            "Your Uni Timetable is now on your "
+                                                                    + "Office Calendar")
+                                                    .flags(DEFAULT_ALL)
+                                                    .smallIcon(
+                                                            R.drawable.pugnotification_ic_launcher)
+                                                    .simple()
+                                                    .build();
+                                        }
+
+                                        @Override
+                                        public void failure(ClientException ex) {
+                                            Log.e("Service", ex.getMessage());
+                                            PugNotification.with(getApplicationContext())
+                                                    .load()
+                                                    .title("Office Sync Failed")
+                                                    .message(ex.getMessage())
+                                                    .flags(DEFAULT_ALL)
+                                                    .click(SettingsActivity.class)
+                                                    .smallIcon(
+                                                            R.drawable.pugnotification_ic_launcher)
+                                                    .simple()
+                                                    .build();
+                                        }
+                                    });
                         }
                         return null;
                     }
