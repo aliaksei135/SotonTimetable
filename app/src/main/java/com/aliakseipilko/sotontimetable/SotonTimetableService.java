@@ -38,7 +38,6 @@ import com.google.api.client.json.jackson2.JacksonFactory;
 import com.google.api.client.util.Beta;
 import com.google.api.client.util.DateTime;
 import com.google.api.services.calendar.CalendarScopes;
-import com.google.api.services.calendar.model.CalendarListEntry;
 import com.google.api.services.calendar.model.EventDateTime;
 import com.google.api.services.calendar.model.EventReminder;
 import com.google.gson.Gson;
@@ -70,6 +69,7 @@ import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.io.OutputStreamWriter;
+import java.net.ConnectException;
 import java.net.CookieHandler;
 import java.net.CookieManager;
 import java.net.URL;
@@ -79,6 +79,7 @@ import java.util.Arrays;
 import java.util.Calendar;
 import java.util.Date;
 import java.util.List;
+import java.util.Scanner;
 
 import javax.net.ssl.HttpsURLConnection;
 
@@ -175,6 +176,9 @@ public class SotonTimetableService extends JobIntentService {
                 List<com.google.api.services.calendar.model.Event> events = parseJsonToGoogle(json);
                 addEventsToGoogle(events);
             }
+        } catch (ConnectException e) {
+            //TODO Impl retries
+            e.printStackTrace();
         } catch (IOException e) {
             e.printStackTrace();
             PugNotification.with(getApplicationContext())
@@ -237,10 +241,16 @@ public class SotonTimetableService extends JobIntentService {
 
             InputStreamReader isr = new InputStreamReader(eventsConn.getInputStream(), "UTF-8");
             Gson gson = new GsonBuilder()
-                    .setDateFormat("YYYY-MM-dd'T'HH:mm:ss.SSSXXX")
+                    .setDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSSXXX")
                     .setPrettyPrinting()
+                    .setLenient()
                     .create();
+
+
             TimetableJsonModel timetable = gson.fromJson(isr, TimetableJsonModel.class);
+
+            Scanner s = new Scanner(eventsConn.getInputStream()).useDelimiter("\\A");
+            String result = s.hasNext() ? s.next() : "";
             isr.close();
             eventsConn.disconnect();
             connection.disconnect();
@@ -357,6 +367,82 @@ public class SotonTimetableService extends JobIntentService {
         }
     }
 
+    private void addEventsToGoogle(
+            final List<com.google.api.services.calendar.model.Event> parsedEvents)
+            throws IOException, GoogleAuthException {
+        Account acc = new Account(prefs.getString("accountName", null),
+                GoogleAccountManager.ACCOUNT_TYPE);
+        final String token = GoogleAuthUtil.getTokenWithNotification(getApplicationContext(), acc,
+                "oauth2:" + GOOGLE_SCOPES[0], null);
+        HttpRequestInitializer initializer = new HttpRequestInitializer() {
+            @Override
+            public void initialize(HttpRequest request) {
+                RequestHandler handler = new RequestHandler(token);
+                request.setInterceptor(handler);
+                request.setUnsuccessfulResponseHandler(handler);
+
+            }
+        };
+        HttpTransport transport = AndroidHttp.newCompatibleTransport();
+        JsonFactory jsonFactory = JacksonFactory.getDefaultInstance();
+        final com.google.api.services.calendar.Calendar mService =
+                new com.google.api.services.calendar.Calendar.Builder(
+                        transport, jsonFactory, initializer)
+                        .setApplicationName("SotonCal")
+                        .build();
+
+        final BatchRequest batch = mService.batch();
+        final JsonBatchCallback<com.google.api.services.calendar.model.Event> callback =
+                new JsonBatchCallback<com.google.api.services.calendar.model.Event>() {
+                    @Override
+                    public void onFailure(GoogleJsonError e, HttpHeaders responseHeaders) {
+                        Log.e("Service", e.getMessage());
+                        PugNotification.with(getApplicationContext())
+                                .load()
+                                .title("Google Sync Failed")
+                                .message(e.getMessage())
+                                .flags(DEFAULT_ALL)
+                                .click(SettingsActivity.class)
+                                .smallIcon(R.drawable.pugnotification_ic_launcher)
+                                .simple()
+                                .build();
+                    }
+
+                    @Override
+                    public void onSuccess(com.google.api.services.calendar.model.Event event,
+                            HttpHeaders responseHeaders) {
+                        PugNotification.with(getApplicationContext())
+                                .load()
+                                .title("Google Sync Complete!")
+                                .message("Your Uni Timetable is now on your Google Calendar")
+                                .flags(DEFAULT_ALL)
+                                .smallIcon(R.drawable.pugnotification_ic_launcher)
+                                .simple()
+                                .build();
+                    }
+                };
+
+        class AddToGoogleTask extends AsyncTask<Void, Void, Void> {
+
+            @Override
+            protected Void doInBackground(Void... voids) {
+                try {
+                    for (com.google.api.services.calendar.model.Event event : parsedEvents) {
+                        String calId = prefs.getString("google_cal_id", null);
+                        mService.events().insert(calId, event).queue(batch,
+                                callback);
+                    }
+                    batch.execute();
+                } catch (IOException e) {
+                    e.printStackTrace();
+                }
+                return null;
+            }
+        }
+        new AddToGoogleTask().execute();
+
+    }
+
     private AuthenticationCallback getAuthSilentCallback(final List<Event> parsedEvents) {
         return new AuthenticationCallback() {
             @Override
@@ -375,9 +461,10 @@ public class SotonTimetableService extends JobIntentService {
                         clientConfig).buildClient();
 
 
+                String calId = prefs.getString("office_cal_id", null);
                 final IEventCollectionRequestBuilder eventCollectionRequestBuilder =
                         mGraphServiceClient.getMe()
-//                                .getCalendar()
+                                .getCalendars(calId)
                                 .getEvents();
 
                 @SuppressLint("StaticFieldLeak")
@@ -465,90 +552,6 @@ public class SotonTimetableService extends JobIntentService {
                 Log.d(TAG, "User cancelled login.");
             }
         };
-    }
-
-    private void addEventsToGoogle(
-            final List<com.google.api.services.calendar.model.Event> parsedEvents)
-            throws IOException, GoogleAuthException {
-        Account acc = new Account(prefs.getString("accountName", null),
-                GoogleAccountManager.ACCOUNT_TYPE);
-        final String token = GoogleAuthUtil.getTokenWithNotification(getApplicationContext(), acc,
-                "oauth2:" + GOOGLE_SCOPES[0], null);
-        HttpRequestInitializer initializer = new HttpRequestInitializer() {
-            @Override
-            public void initialize(HttpRequest request) {
-                RequestHandler handler = new RequestHandler(token);
-                request.setInterceptor(handler);
-                request.setUnsuccessfulResponseHandler(handler);
-
-            }
-        };
-        HttpTransport transport = AndroidHttp.newCompatibleTransport();
-        JsonFactory jsonFactory = JacksonFactory.getDefaultInstance();
-        final com.google.api.services.calendar.Calendar mService =
-                new com.google.api.services.calendar.Calendar.Builder(
-                        transport, jsonFactory, initializer)
-                        .setApplicationName("SotonCal")
-                        .build();
-
-        final BatchRequest batch = mService.batch();
-        List<CalendarListEntry> calList = mService.calendarList().list().setMinAccessRole(
-                "writer").execute().getItems();
-        String calId = null;
-        for (CalendarListEntry it : calList) {
-            if (it.getSummary().equals("University Timetable")) {
-                calId = it.getId();
-            }
-        }
-        final JsonBatchCallback<com.google.api.services.calendar.model.Event> callback =
-                new JsonBatchCallback<com.google.api.services.calendar.model.Event>() {
-                    @Override
-                    public void onFailure(GoogleJsonError e, HttpHeaders responseHeaders) {
-                        Log.e("Service", e.getMessage());
-                        PugNotification.with(getApplicationContext())
-                                .load()
-                                .title("Google Sync Failed")
-                                .message(e.getMessage())
-                                .flags(DEFAULT_ALL)
-                                .click(SettingsActivity.class)
-                                .smallIcon(R.drawable.pugnotification_ic_launcher)
-                                .simple()
-                                .build();
-                    }
-
-                    @Override
-                    public void onSuccess(com.google.api.services.calendar.model.Event event,
-                            HttpHeaders responseHeaders) {
-                        PugNotification.with(getApplicationContext())
-                                .load()
-                                .title("Google Sync Complete!")
-                                .message("Your Uni Timetable is now on your Google Calendar")
-                                .flags(DEFAULT_ALL)
-                                .smallIcon(R.drawable.pugnotification_ic_launcher)
-                                .simple()
-                                .build();
-                    }
-                };
-
-        final String finalCalId = calId;
-        class AddToGoogleTask extends AsyncTask<Void, Void, Void> {
-
-            @Override
-            protected Void doInBackground(Void... voids) {
-                try {
-                    for (com.google.api.services.calendar.model.Event event : parsedEvents) {
-                        //TODO support custom calendar id
-                        mService.events().insert(finalCalId, event).queue(batch, callback);
-                    }
-                    batch.execute();
-                } catch (IOException e) {
-                    e.printStackTrace();
-                }
-                return null;
-            }
-        }
-        new AddToGoogleTask().execute();
-
     }
 
     @Beta

@@ -186,11 +186,50 @@ public class SettingsActivity extends AppCompatActivity {
             }
             if (prefs.getBoolean("office_cal_enabled", false)) {
                 officeSection.setEnabled(true);
+                Set<String> set = prefs.getStringSet("office_cal_entries", null);
+                if (set != null) {
+                    String[] cals = new String[set.size()];
+                    int i = 0;
+                    for (String s : set) {
+                        cals[i++] = s;
+                    }
+                    officeCal.setEntries(cals);
+                }
+
+                Set<String> values = prefs.getStringSet("office_cal_ids", null);
+                if (values != null) {
+                    String[] vals = new String[values.size()];
+                    int i = 0;
+                    for (String s : values) {
+                        vals[i++] = s;
+                    }
+                    officeCal.setEntryValues(vals);
+                }
             } else {
                 officeSection.setEnabled(false);
             }
             if (prefs.getBoolean("google_cal_enabled", false)) {
                 googleSection.setEnabled(true);
+                Set<String> set = prefs.getStringSet("google_cal_entries", null);
+                if (set != null) {
+                    String[] cals = new String[set.size()];
+                    int i = 0;
+                    for (String s : set) {
+                        cals[i++] = s;
+                    }
+                    googleCal.setEntries(cals);
+                }
+
+                Set<String> values = prefs.getStringSet("google_cal_ids", null);
+                if (values != null) {
+                    String[] vals = new String[values.size()];
+                    int i = 0;
+                    for (String s : values) {
+                        vals[i++] = s;
+                    }
+                    googleCal.setEntryValues(vals);
+                }
+
             } else {
                 googleSection.setEnabled(false);
             }
