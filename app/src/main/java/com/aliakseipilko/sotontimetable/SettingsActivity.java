@@ -10,7 +10,9 @@ import android.content.Intent;
 import android.content.SharedPreferences;
 import android.net.ConnectivityManager;
 import android.net.NetworkInfo;
+import android.os.AsyncTask;
 import android.os.Bundle;
+import android.preference.ListPreference;
 import android.preference.Preference;
 import android.preference.PreferenceFragment;
 import android.support.annotation.NonNull;
@@ -19,9 +21,23 @@ import android.widget.Toast;
 
 import com.google.android.gms.common.ConnectionResult;
 import com.google.android.gms.common.GoogleApiAvailability;
+import com.google.api.client.extensions.android.http.AndroidHttp;
 import com.google.api.client.googleapis.extensions.android.gms.auth.GoogleAccountCredential;
+import com.google.api.client.http.HttpTransport;
+import com.google.api.client.json.JsonFactory;
+import com.google.api.client.json.jackson2.JacksonFactory;
 import com.google.api.client.util.ExponentialBackOff;
 import com.google.api.services.calendar.CalendarScopes;
+import com.google.api.services.calendar.model.CalendarList;
+import com.google.api.services.calendar.model.CalendarListEntry;
+import com.microsoft.graph.authentication.IAuthenticationProvider;
+import com.microsoft.graph.core.DefaultClientConfig;
+import com.microsoft.graph.core.IClientConfig;
+import com.microsoft.graph.extensions.Calendar;
+import com.microsoft.graph.extensions.GraphServiceClient;
+import com.microsoft.graph.extensions.ICalendarCollectionRequest;
+import com.microsoft.graph.extensions.IGraphServiceClient;
+import com.microsoft.graph.http.IHttpRequest;
 import com.microsoft.identity.client.AuthenticationCallback;
 import com.microsoft.identity.client.AuthenticationResult;
 import com.microsoft.identity.client.MsalClientException;
@@ -29,7 +45,10 @@ import com.microsoft.identity.client.MsalException;
 import com.microsoft.identity.client.MsalServiceException;
 import com.microsoft.identity.client.PublicClientApplication;
 
+import java.io.IOException;
 import java.util.Arrays;
+import java.util.HashSet;
+import java.util.List;
 import java.util.Set;
 
 import pub.devrel.easypermissions.AfterPermissionGranted;
@@ -63,7 +82,13 @@ public class SettingsActivity extends AppCompatActivity {
         static final int REQUEST_PERMISSION_GET_ACCOUNTS = 1003;
         private static final String PREF_ACCOUNT_NAME = "accountName";
         private static final String[] GOOGLE_SCOPES = {CalendarScopes.CALENDAR,};
-        private GoogleAccountCredential mCredential;
+        static ListPreference googleCal;
+        static ListPreference officeCal;
+        static ListPreference localCal;
+        static SharedPreferences prefs;
+        @SuppressLint("StaticFieldLeak")
+        private static GoogleAccountCredential mCredential;
+
 
         private static void handleOfficeRedirect(int requestCode, int resultCode, Intent data) {
             pcApp.handleInteractiveRequestRedirect(requestCode, resultCode, data);
@@ -79,12 +104,61 @@ public class SettingsActivity extends AppCompatActivity {
                     new Intent().setAction("com.aliakseipilko.sotontimetable.stopsync"));
         }
 
+        @SuppressLint("ApplySharedPref")
+        public static void setOfficeCalEntries(List<Calendar> cals) {
+            String[] entries = new String[cals.size()];
+            Set<String> entriesSet = new HashSet<>();
+            for (int i = 0; i < cals.size(); i++) {
+                String s = cals.get(i).name;
+                entries[i] = s;
+                entriesSet.add(s);
+            }
+
+            String[] values = new String[cals.size()];
+            Set<String> valuesSet = new HashSet<>();
+            for (int j = 0; j < cals.size(); j++) {
+                String s = cals.get(j).id;
+                values[j] = s;
+                valuesSet.add(s);
+            }
+
+            officeCal.setEntries(entries);
+            officeCal.setEntryValues(values);
+
+            prefs.edit().putStringSet("office_cal_entries", entriesSet).commit();
+            prefs.edit().putStringSet("office_cal_ids", valuesSet).commit();
+        }
+
+        @SuppressLint("ApplySharedPref")
+        public static void setGoogleCalEntries(List<CalendarListEntry> cals) {
+            String[] entries = new String[cals.size()];
+            Set<String> entriesSet = new HashSet<>();
+            for (int i = 0; i < cals.size(); i++) {
+                String s = cals.get(i).getSummary();
+                entries[i] = s;
+                entriesSet.add(s);
+            }
+
+            String[] values = new String[cals.size()];
+            Set<String> valuesSet = new HashSet<>();
+            for (int j = 0; j < cals.size(); j++) {
+                String s = cals.get(j).getId();
+                values[j] = s;
+                valuesSet.add(s);
+            }
+
+            googleCal.setEntries(entries);
+            googleCal.setEntryValues(values);
+
+            prefs.edit().putStringSet("google_cal_entries", entriesSet).commit();
+            prefs.edit().putStringSet("google_cal_ids", valuesSet).commit();
+        }
 
         // Brace yourself for a monolithic method
         @Override
         public void onCreate(Bundle savedInstanceState) {
             //Crude hack to get the same prefs
-            final SharedPreferences prefs = getActivity().getSharedPreferences(
+            prefs = getActivity().getSharedPreferences(
                     getActivity().getPackageName() + "_preferences", MODE_PRIVATE);
             super.onCreate(savedInstanceState);
 
@@ -95,15 +169,15 @@ public class SettingsActivity extends AppCompatActivity {
             final Preference enabledCals = findPreference("enabled_calendars");
 
             final Preference localSection = findPreference("local_cal_section");
-            final Preference localCal = findPreference("local_cal_id");
+            localCal = (ListPreference) findPreference("local_cal_id");
 
             final Preference officeSection = findPreference("office_cal_section");
             final Preference officeSignin = findPreference("office_signin");
-            final Preference officeCal = findPreference("office_cal_id");
+            officeCal = (ListPreference) findPreference("office_cal_id");
 
             final Preference googleSection = findPreference("google_cal_section");
             final Preference googleSignin = findPreference("google_signin");
-            final Preference googleCal = findPreference("google_cal_id");
+            googleCal = (ListPreference) findPreference("google_cal_id");
 
             if (prefs.getBoolean("local_cal_enabled", false)) {
                 localSection.setEnabled(true);
@@ -245,13 +319,17 @@ public class SettingsActivity extends AppCompatActivity {
                 @Override
                 public void onSuccess(AuthenticationResult authenticationResult) {
                     /* Successfully got a token, call graph now */
-                    Toast.makeText(getActivity(), "Successfully Signed In!", Toast.LENGTH_SHORT).show();
-                    setToken(authenticationResult.getAccessToken());
+                    Toast.makeText(getActivity(), "Successfully Signed In!", Toast.LENGTH_SHORT)
+                            .show();
+                    prefs.edit().putBoolean("officeSignedIn", true);
+                    new GetOfficeCalendarListTask().execute(authenticationResult.getAccessToken());
                 }
 
                 @Override
                 public void onError(MsalException exception) {
                     /* Failed to acquireToken */
+                    Toast.makeText(getActivity(), "That didn't work!", Toast.LENGTH_SHORT).show();
+                    prefs.edit().putBoolean("officeSignedIn", false);
 
                     if (exception instanceof MsalClientException) {
                         /* Exception inside MSAL, more info inside MsalError.java */
@@ -267,17 +345,58 @@ public class SettingsActivity extends AppCompatActivity {
             };
         }
 
+        /**
+         * Attempt to call the API, after verifying that all the preconditions are
+         * satisfied. The preconditions are: Google Play Services installed, an
+         * account was selected and the device currently has online access. If any
+         * of the preconditions are not satisfied, the app will prompt the user as
+         * appropriate.
+         */
+        private void getResultsFromApi() {
+            if (!isGooglePlayServicesAvailable()) {
+                acquireGooglePlayServices();
+            } else if (mCredential.getSelectedAccountName() == null) {
+                chooseAccount();
+            } else {
+                new GetGoogleCalendarListTask().execute();
+            }
+        }
+
+        private static class GetOfficeCalendarListTask extends AsyncTask<String, Void, Void> {
+
+
+            @Override
+            protected Void doInBackground(final String... strings) {
+                /* Successfully got a token, call Graph now */
+                IClientConfig clientConfig = DefaultClientConfig.createWithAuthenticationProvider(
+                        new IAuthenticationProvider() {
+                            @Override
+                            public void authenticateRequest(IHttpRequest request) {
+                                request.addHeader("Authorization", "Bearer "
+                                        + strings[0]);
+                                request.addHeader("Content-Type", "application/json");
+                            }
+                        });
+                IGraphServiceClient mGraphServiceClient =
+                        new GraphServiceClient.Builder().fromConfig(
+                                clientConfig).buildClient();
+
+
+                final ICalendarCollectionRequest calendarCollectionRequest =
+                        mGraphServiceClient.getMe()
+                                .getCalendars().buildRequest();
+
+                List<Calendar> cals = calendarCollectionRequest.get().getCurrentPage();
+                setOfficeCalEntries(cals);
+
+                return null;
+            }
+        }
+
         private void authOffice() {
             pcApp = new PublicClientApplication(getActivity().getApplicationContext(),
                     OFFICE_CLIENT_ID);
             pcApp.acquireToken(getActivity(), OFFICE_SCOPES, getAuthInteractiveCallback());
-        }
-
-        private void setToken(String accessToken) {
-            getActivity().getSharedPreferences(getActivity().getPackageName(), MODE_PRIVATE)
-                    .edit()
-                    .putString("office_access_token", accessToken)
-                    .apply();
         }
 
 
@@ -344,18 +463,30 @@ public class SettingsActivity extends AppCompatActivity {
             }
         }
 
-        /**
-         * Attempt to call the API, after verifying that all the preconditions are
-         * satisfied. The preconditions are: Google Play Services installed, an
-         * account was selected and the device currently has online access. If any
-         * of the preconditions are not satisfied, the app will prompt the user as
-         * appropriate.
-         */
-        private void getResultsFromApi() {
-            if (!isGooglePlayServicesAvailable()) {
-                acquireGooglePlayServices();
-            } else if (mCredential.getSelectedAccountName() == null) {
-                chooseAccount();
+        private static class GetGoogleCalendarListTask extends AsyncTask<Void, Void, Void> {
+
+            @Override
+            protected Void doInBackground(Void... voids) {
+                HttpTransport transport = AndroidHttp.newCompatibleTransport();
+                JsonFactory jsonFactory = JacksonFactory.getDefaultInstance();
+                final com.google.api.services.calendar.Calendar mService =
+                        new com.google.api.services.calendar.Calendar.Builder(
+                                transport, jsonFactory, mCredential)
+                                .setApplicationName("SotonCal")
+                                .build();
+
+                try {
+                    CalendarList req =
+                            mService.calendarList().list().setMinAccessRole("writer").execute();
+                    List<CalendarListEntry> cal = req.getItems();
+
+                    setGoogleCalEntries(cal);
+                } catch (IOException e) {
+                    e.printStackTrace();
+                }
+
+
+                return null;
             }
         }
 

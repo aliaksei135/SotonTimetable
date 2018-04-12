@@ -24,7 +24,7 @@
 	<PreferenceCategory
 		android:key="local_cal_section"
 		android:title="Local Calendar">
-		<Preference
+		<ListPreference
 			android:defaultValue="Timetable"
 			android:key="local_cal_id"
 			android:summary="Select local calendar to sync to"
@@ -39,7 +39,7 @@
 			android:key="office_signin"
 			android:title="Microsoft/Office Sign In"/>
 
-		<Preference
+		<ListPreference
 			android:defaultValue="Timetable"
 			android:key="office_cal_id"
 			android:summary="Select Office calendar to sync to"
@@ -55,7 +55,7 @@
 			android:key="google_signin"
 			android:title="Google Sign In"/>
 
-		<Preference
+		<ListPreference
 			android:defaultValue="Timetable"
 			android:key="google_cal_id"
 			android:summary="Select Google calendar to sync to"
