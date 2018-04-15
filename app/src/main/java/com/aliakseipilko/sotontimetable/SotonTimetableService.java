@@ -79,7 +79,6 @@ import java.util.Arrays;
 import java.util.Calendar;
 import java.util.Date;
 import java.util.List;
-import java.util.Scanner;
 
 import javax.net.ssl.HttpsURLConnection;
 
@@ -124,7 +123,6 @@ public class SotonTimetableService extends JobIntentService {
     public void onCreate() {
         super.onCreate();
         prefs = getSharedPreferences(getPackageName() + "_preferences", MODE_PRIVATE);
-
         // To keep sessions alive
         CookieManager cookieManager = new CookieManager();
         CookieHandler.setDefault(cookieManager);
@@ -232,7 +230,6 @@ public class SotonTimetableService extends JobIntentService {
             @SuppressLint("SimpleDateFormat")
             SimpleDateFormat sdf = new SimpleDateFormat("YYYYDDD");
             String stamp = sdf.format(cal);
-            stamp = "2018117";
 
             URL eventsURL = new URL(EVENTS_ENDPOINT + stamp);
             HttpsURLConnection eventsConn = (HttpsURLConnection) eventsURL.openConnection();
@@ -246,11 +243,8 @@ public class SotonTimetableService extends JobIntentService {
                     .setLenient()
                     .create();
 
-
             TimetableJsonModel timetable = gson.fromJson(isr, TimetableJsonModel.class);
 
-            Scanner s = new Scanner(eventsConn.getInputStream()).useDelimiter("\\A");
-            String result = s.hasNext() ? s.next() : "";
             isr.close();
             eventsConn.disconnect();
             connection.disconnect();
@@ -396,7 +390,7 @@ public class SotonTimetableService extends JobIntentService {
                 new JsonBatchCallback<com.google.api.services.calendar.model.Event>() {
                     @Override
                     public void onFailure(GoogleJsonError e, HttpHeaders responseHeaders) {
-                        Log.e("Service", e.getMessage());
+                        Log.e(TAG, e.getMessage());
                         PugNotification.with(getApplicationContext())
                                 .load()
                                 .title("Google Sync Failed")
@@ -492,7 +486,7 @@ public class SotonTimetableService extends JobIntentService {
 
                                         @Override
                                         public void failure(ClientException ex) {
-                                            Log.e("Service", ex.getMessage());
+                                            Log.e(TAG, ex.getMessage());
                                             PugNotification.with(getApplicationContext())
                                                     .load()
                                                     .title("Office Sync Failed")
@@ -573,7 +567,7 @@ public class SotonTimetableService extends JobIntentService {
         @Override
         public boolean handleResponse(
                 HttpRequest request, HttpResponse response, boolean supportsRetry) {
-            Log.i("Service", response.getStatusCode() + response.getStatusMessage());
+            Log.i(TAG, response.getStatusCode() + response.getStatusMessage());
             if (response.getStatusCode() == 401 && !received401) {
                 received401 = true;
                 GoogleAuthUtil.invalidateToken(getApplicationContext(), token);

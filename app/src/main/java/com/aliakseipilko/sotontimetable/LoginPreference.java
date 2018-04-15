@@ -32,7 +32,7 @@ public class LoginPreference extends DialogPreference {
             int defStyleAttr, int defStyleRes) {
         super(context, attrs, defStyleAttr, defStyleRes);
 
-        if(attrs != null){
+        if (attrs != null) {
             TypedArray a = context.obtainStyledAttributes(attrs, R.styleable.LoginPreference);
             login_key = a.getString(R.styleable.LoginPreference_login_key);
             password_key = a.getString(R.styleable.LoginPreference_password_key);
@@ -40,6 +40,11 @@ public class LoginPreference extends DialogPreference {
         }
         setPositiveButtonText("Login");
         setDialogLayoutResource(R.layout.login_preference);
+    }
+
+    @Override
+    public int getDialogLayoutResource() {
+        return R.layout.login_preference;
     }
 
     @Override
@@ -52,14 +57,9 @@ public class LoginPreference extends DialogPreference {
     }
 
     @Override
-    public int getDialogLayoutResource() {
-        return R.layout.login_preference;
-    }
-
-    @Override
     protected void onDialogClosed(boolean positiveResult) {
         super.onDialogClosed(positiveResult);
-        if(positiveResult){
+        if (positiveResult) {
             String l = login.getText().toString().toLowerCase().trim();
             String p = password.getText().toString();
 
