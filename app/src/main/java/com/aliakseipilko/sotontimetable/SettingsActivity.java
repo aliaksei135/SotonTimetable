@@ -68,7 +68,8 @@ public class SettingsActivity extends AppCompatActivity {
         GeneralPreferenceFragment.handleOfficeRedirect(requestCode, resultCode, data);
     }
 
-    public static class GeneralPreferenceFragment extends PreferenceFragment {
+    public static class GeneralPreferenceFragment extends PreferenceFragment implements
+            Preference.OnPreferenceClickListener, Preference.OnPreferenceChangeListener {
 
         final static String OFFICE_CLIENT_ID = "ac6b7a81-b8e2-4a9b-9689-8a5b0be0ac2e";
         final static String OFFICE_SCOPES[] = {"https://graph.microsoft.com/Calendars.ReadWrite"};
@@ -82,9 +83,19 @@ public class SettingsActivity extends AppCompatActivity {
         static final int REQUEST_PERMISSION_GET_ACCOUNTS = 1003;
         private static final String PREF_ACCOUNT_NAME = "accountName";
         private static final String[] GOOGLE_SCOPES = {CalendarScopes.CALENDAR,};
-        static ListPreference googleCal;
-        static ListPreference officeCal;
+
         static ListPreference localCal;
+        Preference masterSwitch;
+        Preference enabledCals;
+        Preference localSection;
+        Preference googleSection;
+        static ListPreference googleCal;
+        Preference googleSignin;
+
+        Preference officeSection;
+        static ListPreference officeCal;
+        Preference officeSignin;
+
         static SharedPreferences prefs;
         @SuppressLint("StaticFieldLeak")
         private static GoogleAccountCredential mCredential;
@@ -124,6 +135,7 @@ public class SettingsActivity extends AppCompatActivity {
 
             officeCal.setEntries(entries);
             officeCal.setEntryValues(values);
+            officeCal.setEnabled(true);
 
             prefs.edit().putStringSet("office_cal_entries", entriesSet).commit();
             prefs.edit().putStringSet("office_cal_ids", valuesSet).commit();
@@ -149,12 +161,12 @@ public class SettingsActivity extends AppCompatActivity {
 
             googleCal.setEntries(entries);
             googleCal.setEntryValues(values);
+            googleCal.setEnabled(true);
 
             prefs.edit().putStringSet("google_cal_entries", entriesSet).commit();
             prefs.edit().putStringSet("google_cal_ids", valuesSet).commit();
         }
 
-        // Brace yourself for a monolithic method
         @Override
         public void onCreate(Bundle savedInstanceState) {
             //Crude hack to get the same prefs
@@ -164,19 +176,22 @@ public class SettingsActivity extends AppCompatActivity {
 
             addPreferencesFromResource(R.xml.pref_general);
 
-            final Preference masterSwitch = findPreference("enable_switch");
-            final Preference sotonSignin = findPreference("soton_signin");
-            final Preference enabledCals = findPreference("enabled_calendars");
+            masterSwitch = findPreference("enable_switch");
+            enabledCals = findPreference("enabled_calendars");
+            masterSwitch.setOnPreferenceChangeListener(this);
+            enabledCals.setOnPreferenceChangeListener(this);
 
-            final Preference localSection = findPreference("local_cal_section");
+            localSection = findPreference("local_cal_section");
             localCal = (ListPreference) findPreference("local_cal_id");
 
-            final Preference officeSection = findPreference("office_cal_section");
-            final Preference officeSignin = findPreference("office_signin");
+            officeSection = findPreference("office_cal_section");
+            officeSignin = findPreference("office_signin");
+            officeSignin.setOnPreferenceClickListener(this);
             officeCal = (ListPreference) findPreference("office_cal_id");
 
-            final Preference googleSection = findPreference("google_cal_section");
-            final Preference googleSignin = findPreference("google_signin");
+            googleSection = findPreference("google_cal_section");
+            googleSignin = findPreference("google_signin");
+            googleSignin.setOnPreferenceClickListener(this);
             googleCal = (ListPreference) findPreference("google_cal_id");
 
             if (prefs.getBoolean("local_cal_enabled", false)) {
@@ -184,6 +199,44 @@ public class SettingsActivity extends AppCompatActivity {
             } else {
                 localSection.setEnabled(false);
             }
+
+            if (isDeviceOnline()) {
+                setOnlineCals();
+            } else {
+                setOfflineCals();
+            }
+
+            //TODO Add local device calendar support
+            localCal.setOnPreferenceChangeListener(new Preference.OnPreferenceChangeListener() {
+                @Override
+                public boolean onPreferenceChange(Preference preference, Object o) {
+                    prefs.edit()
+                            .putString("local_cal_id", (String) o)
+                            .apply();
+                    return true;
+                }
+            });
+
+        }
+
+        public void setOnlineCals() {
+            if (prefs.getBoolean("office_cal_enabled", false)) {
+                officeSection.setEnabled(true);
+                officeCal.setEnabled(false);
+                authOffice();
+            } else {
+                officeSection.setEnabled(false);
+            }
+            if (prefs.getBoolean("google_cal_enabled", false)) {
+                googleSection.setEnabled(true);
+                googleCal.setEnabled(false);
+                new GetGoogleCalendarListTask().execute();
+            } else {
+                googleSection.setEnabled(false);
+            }
+        }
+
+        public void setOfflineCals() {
             if (prefs.getBoolean("office_cal_enabled", false)) {
                 officeSection.setEnabled(true);
                 Set<String> set = prefs.getStringSet("office_cal_entries", null);
@@ -233,11 +286,74 @@ public class SettingsActivity extends AppCompatActivity {
             } else {
                 googleSection.setEnabled(false);
             }
+        }
 
-
-            masterSwitch.setOnPreferenceChangeListener(new Preference.OnPreferenceChangeListener() {
+        private AuthenticationCallback getAuthInteractiveCallback() {
+            return new AuthenticationCallback() {
                 @Override
-                public boolean onPreferenceChange(Preference preference, Object o) {
+                public void onSuccess(AuthenticationResult authenticationResult) {
+                    /* Successfully got a token, call graph now */
+                    Toast.makeText(getActivity(), "Successfully Signed In!", Toast.LENGTH_SHORT)
+                            .show();
+                    prefs.edit().putBoolean("officeSignedIn", true);
+                    new GetOfficeCalendarListTask().execute(authenticationResult.getAccessToken());
+                }
+
+                @Override
+                public void onError(MsalException exception) {
+                    /* Failed to acquireToken */
+                    Toast.makeText(getActivity(), "That didn't work!", Toast.LENGTH_SHORT).show();
+                    prefs.edit().putBoolean("officeSignedIn", false);
+
+                    if (exception instanceof MsalClientException) {
+                        /* Exception inside MSAL, more info inside MsalError.java */
+                    } else if (exception instanceof MsalServiceException) {
+                        /* Exception when communicating with the STS, likely config issue */
+                    }
+                }
+
+                @Override
+                public void onCancel() {
+                    /* User cancelled the authentication */
+                }
+            };
+        }
+
+        /**
+         * Attempt to call the API, after verifying that all the preconditions are
+         * satisfied. The preconditions are: Google Play Services installed, an
+         * account was selected and the device currently has online access. If any
+         * of the preconditions are not satisfied, the app will prompt the user as
+         * appropriate.
+         */
+        private void getResultsFromApi() {
+            if (!isGooglePlayServicesAvailable()) {
+                acquireGooglePlayServices();
+            } else if (mCredential.getSelectedAccountName() == null) {
+                chooseAccount();
+            } else {
+                new GetGoogleCalendarListTask().execute();
+            }
+        }
+
+        @Override
+        public boolean onPreferenceClick(Preference preference) {
+            switch (preference.getKey()) {
+                case "office_signin":
+                    authOffice();
+                    return true;
+                case "google_signin":
+                    authGoogle();
+                    return true;
+            }
+            return false;
+        }
+
+        @SuppressLint("ApplySharedPref")
+        @Override
+        public boolean onPreferenceChange(Preference preference, Object o) {
+            switch (preference.getKey()) {
+                case "enable_switch":
                     if(o.equals(true)){
                         startSotonService();
                         enabledCals.setEnabled(true);
@@ -264,13 +380,8 @@ public class SettingsActivity extends AppCompatActivity {
                         googleSection.setEnabled(false);
                     }
                     return true;
-                }
-            });
 
-            enabledCals.setOnPreferenceChangeListener(new Preference.OnPreferenceChangeListener() {
-                @SuppressLint("ApplySharedPref")
-                @Override
-                public boolean onPreferenceChange(Preference preference, Object o) {
+                case "enabled_calendars":
                     Set<String> cals = (Set<String>) o;
 
                     if (cals != null) {
@@ -323,82 +434,8 @@ public class SettingsActivity extends AppCompatActivity {
                                 .commit();
                     }
                     return true;
-                }
-            });
-
-            localCal.setOnPreferenceChangeListener(new Preference.OnPreferenceChangeListener() {
-                @Override
-                public boolean onPreferenceChange(Preference preference, Object o) {
-                    prefs.edit()
-                            .putString("local_cal_id", (String) o)
-                            .apply();
-                    return true;
-                }
-            });
-
-            officeSignin.setOnPreferenceClickListener(new Preference.OnPreferenceClickListener() {
-                @Override
-                public boolean onPreferenceClick(Preference preference) {
-                    authOffice();
-                    return true;
-                }
-            });
-
-            googleSignin.setOnPreferenceClickListener(new Preference.OnPreferenceClickListener() {
-                @Override
-                public boolean onPreferenceClick(Preference preference) {
-                    authGoogle();
-                    return true;
-                }
-            });
-        }
-
-        private AuthenticationCallback getAuthInteractiveCallback() {
-            return new AuthenticationCallback() {
-                @Override
-                public void onSuccess(AuthenticationResult authenticationResult) {
-                    /* Successfully got a token, call graph now */
-                    Toast.makeText(getActivity(), "Successfully Signed In!", Toast.LENGTH_SHORT)
-                            .show();
-                    prefs.edit().putBoolean("officeSignedIn", true);
-                    new GetOfficeCalendarListTask().execute(authenticationResult.getAccessToken());
-                }
-
-                @Override
-                public void onError(MsalException exception) {
-                    /* Failed to acquireToken */
-                    Toast.makeText(getActivity(), "That didn't work!", Toast.LENGTH_SHORT).show();
-                    prefs.edit().putBoolean("officeSignedIn", false);
-
-                    if (exception instanceof MsalClientException) {
-                        /* Exception inside MSAL, more info inside MsalError.java */
-                    } else if (exception instanceof MsalServiceException) {
-                        /* Exception when communicating with the STS, likely config issue */
-                    }
-                }
-
-                @Override
-                public void onCancel() {
-                    /* User cancelled the authentication */
-                }
-            };
-        }
-
-        /**
-         * Attempt to call the API, after verifying that all the preconditions are
-         * satisfied. The preconditions are: Google Play Services installed, an
-         * account was selected and the device currently has online access. If any
-         * of the preconditions are not satisfied, the app will prompt the user as
-         * appropriate.
-         */
-        private void getResultsFromApi() {
-            if (!isGooglePlayServicesAvailable()) {
-                acquireGooglePlayServices();
-            } else if (mCredential.getSelectedAccountName() == null) {
-                chooseAccount();
-            } else {
-                new GetGoogleCalendarListTask().execute();
             }
+            return false;
         }
 
         private static class GetOfficeCalendarListTask extends AsyncTask<String, Void, Void> {
