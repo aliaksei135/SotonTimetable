@@ -262,8 +262,8 @@ public class SotonTimetableService extends JobIntentService {
 
         for (EventJsonModel event : json.events) {
             Event newEvent = new Event();
-            newEvent.iCalUId = (event.getId());
-            newEvent.subject = (event.getDesc2());
+            newEvent.iCalUId = event.getId();
+            newEvent.subject = event.getDesc2();
 
             ItemBody body = new ItemBody();
             body.content = event.getDesc1() + "\nTeacher: " + event.getTeacherName();
@@ -280,12 +280,12 @@ public class SotonTimetableService extends JobIntentService {
 
             DateTimeTimeZone start = new DateTimeTimeZone();
             start.dateTime = sdf.format(event.getStart());
-            start.timeZone = "UTC";
+            start.timeZone = "Europe/London";
             newEvent.start = (start);
 
             DateTimeTimeZone end = new DateTimeTimeZone();
             end.dateTime = sdf.format(event.getEnd());
-            end.timeZone = "UTC";
+            end.timeZone = "Europe/London";
             newEvent.end = (end);
 
             newEvent.reminderMinutesBeforeStart = 20;
