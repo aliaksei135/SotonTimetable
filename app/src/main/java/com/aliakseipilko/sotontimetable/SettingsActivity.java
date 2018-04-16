@@ -17,6 +17,7 @@ import android.preference.Preference;
 import android.preference.PreferenceFragment;
 import android.support.annotation.NonNull;
 import android.support.v7.app.AppCompatActivity;
+import android.util.Pair;
 import android.widget.Toast;
 
 import com.crashlytics.android.Crashlytics;
@@ -92,9 +93,8 @@ public class SettingsActivity extends AppCompatActivity {
         static ListPreference localCal;
         static ListPreference officeCal;
         static SharedPreferences prefs;
-        //Only instantiated for auth
-        private PublicClientApplication pcApp;
-        private GoogleAccountCredential mCredential;
+        PublicClientApplication pcApp;
+        GoogleAccountCredential mCredential;
         Preference masterSwitch;
         Preference enabledCals;
         Preference localSection;
@@ -270,34 +270,46 @@ public class SettingsActivity extends AppCompatActivity {
         }
 
         public void setOnlineCals() {
-            if (prefs.getBoolean("office_cal_enabled", false)) {
-                officeSection.setEnabled(true);
-                officeCal.setEnabled(false);
-                if (officeToken != null) {
-                    new GetOfficeCalendarListTask().execute((SettingsActivity) getActivity());
+            try {
+                if (prefs.getBoolean("office_cal_enabled", false)) {
+                    officeSection.setEnabled(true);
+                    officeCal.setEnabled(false);
+                    if (officeToken != null) {
+                        new GetOfficeCalendarListTask().execute((SettingsActivity) getActivity());
+                    } else {
+                        authOffice();
+                    }
                 } else {
-                    authOffice();
+                    officeSection.setEnabled(false);
                 }
-            } else {
-                officeSection.setEnabled(false);
-            }
-            if (prefs.getBoolean("google_cal_enabled", false)) {
-                googleSection.setEnabled(true);
-                googleCal.setEnabled(false);
-                if (mCredential.getSelectedAccountName() != null) {
-                    new GetGoogleCalendarListTask().execute((SettingsActivity) getActivity());
+                if (prefs.getBoolean("google_cal_enabled", false)) {
+                    googleSection.setEnabled(true);
+                    googleCal.setEnabled(false);
+                    if (mCredential != null) {
+                        new GetGoogleCalendarListTask().execute(
+                                new Pair<>((SettingsActivity) getActivity(), mCredential));
+                    } else {
+                        authGoogle();
+                    }
                 } else {
-                    authGoogle();
+                    googleSection.setEnabled(false);
                 }
-            } else {
-                googleSection.setEnabled(false);
+            } catch (Exception e) {
+                e.printStackTrace();
+                setOfflineCals();
             }
         }
 
         private void authOffice() {
             pcApp = new PublicClientApplication(getActivity().getApplicationContext(),
                     OFFICE_CLIENT_ID);
-            pcApp.acquireToken(getActivity(), OFFICE_SCOPES, getAuthInteractiveCallback());
+            try {
+                pcApp.acquireTokenSilentAsync(OFFICE_SCOPES, pcApp.getUsers().get(0),
+                        getAuthInteractiveCallback());
+            } catch (MsalClientException e) {
+                e.printStackTrace();
+                pcApp.acquireToken(getActivity(), OFFICE_SCOPES, getAuthInteractiveCallback());
+            }
         }
 
         private AuthenticationCallback getAuthInteractiveCallback() {
@@ -677,18 +689,20 @@ public class SettingsActivity extends AppCompatActivity {
         }
 
         private static class GetGoogleCalendarListTask extends
-                AsyncTask<SettingsActivity, Void, List<CalendarListEntry>> {
+                AsyncTask<Pair<SettingsActivity, GoogleAccountCredential>, Void, List<CalendarListEntry>> {
 
             private WeakReference<SettingsActivity> activityReference;
 
             @Override
-            protected List<CalendarListEntry> doInBackground(SettingsActivity... contexts) {
-                activityReference = new WeakReference<>(contexts[0]);
+            protected List<CalendarListEntry> doInBackground(
+                    Pair<SettingsActivity, GoogleAccountCredential>... contexts) {
+                activityReference = new WeakReference<>(contexts[0].first);
+                GoogleAccountCredential mCred = contexts[0].second;
                 HttpTransport transport = AndroidHttp.newCompatibleTransport();
                 JsonFactory jsonFactory = JacksonFactory.getDefaultInstance();
                 final com.google.api.services.calendar.Calendar mService =
                         new com.google.api.services.calendar.Calendar.Builder(
-                                transport, jsonFactory, activityReference.get().frag.mCredential)
+                                transport, jsonFactory, mCred)
                                 .setApplicationName("SotonCal")
                                 .build();
 
