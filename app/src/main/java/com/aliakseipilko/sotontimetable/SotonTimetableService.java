@@ -42,6 +42,7 @@ import com.google.api.services.calendar.model.EventDateTime;
 import com.google.api.services.calendar.model.EventReminder;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
+import com.google.gson.JsonPrimitive;
 import com.microsoft.graph.authentication.IAuthenticationProvider;
 import com.microsoft.graph.concurrency.ICallback;
 import com.microsoft.graph.core.ClientException;
@@ -290,6 +291,8 @@ public class SotonTimetableService extends JobIntentService {
 
             newEvent.reminderMinutesBeforeStart = 20;
 
+            newEvent.getAdditionalDataManager().put("soton_id", new JsonPrimitive(event.getId()));
+
             parsedEvents.add(newEvent);
         }
 
@@ -314,12 +317,12 @@ public class SotonTimetableService extends JobIntentService {
             SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss");
 
             EventDateTime start = new EventDateTime();
-            start.setDateTime(new DateTime(sdf.format(event.getStart())));
+            start.setDateTime(new DateTime(event.getStart()));
             start.setTimeZone("Europe/London");
             newEvent.setStart(start);
 
             EventDateTime end = new EventDateTime();
-            end.setDateTime(new DateTime(sdf.format(event.getEnd())));
+            end.setDateTime(new DateTime(event.getEnd()));
             end.setTimeZone("Europe/London");
             newEvent.setEnd(end);
 
@@ -460,6 +463,7 @@ public class SotonTimetableService extends JobIntentService {
                         mGraphServiceClient.getMe()
                                 .getCalendars(calId)
                                 .getEvents();
+
 
                 @SuppressLint("StaticFieldLeak")
                 class AddToOfficeTask extends AsyncTask<Void, Void, Void> {
