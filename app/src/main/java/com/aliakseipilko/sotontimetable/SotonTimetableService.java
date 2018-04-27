@@ -42,7 +42,6 @@ import com.google.api.services.calendar.model.EventDateTime;
 import com.google.api.services.calendar.model.EventReminder;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
-import com.google.gson.JsonPrimitive;
 import com.microsoft.graph.authentication.IAuthenticationProvider;
 import com.microsoft.graph.concurrency.ICallback;
 import com.microsoft.graph.core.ClientException;
@@ -115,7 +114,12 @@ public class SotonTimetableService extends JobIntentService {
                         1001,
                         intent);
             } else if (action.equals("com.aliakseipilko.sotontimetable.stopsync")) {
-                onDestroy();
+                AlarmManager a = (AlarmManager) context.getSystemService(ALARM_SERVICE);
+                Intent i = new Intent(getApplicationContext(), SotonTimetableService.class);
+                i.setAction("com.aliakseipilko.sotontimetable.synctimetable");
+                PendingIntent p = PendingIntent.getBroadcast(getApplicationContext(), 2053, i,
+                        PendingIntent.FLAG_UPDATE_CURRENT);
+                a.cancel(p);
             }
         }
     };
@@ -291,7 +295,7 @@ public class SotonTimetableService extends JobIntentService {
 
             newEvent.reminderMinutesBeforeStart = 20;
 
-            newEvent.getAdditionalDataManager().put("soton_id", new JsonPrimitive(event.getId()));
+//            newEvent.getAdditionalDataManager().put("soton_id", new JsonPrimitive(event.getId()));
 
             parsedEvents.add(newEvent);
         }
@@ -471,6 +475,12 @@ public class SotonTimetableService extends JobIntentService {
                     @Override
                     protected Void doInBackground(Void... voids) {
                         for (Event e : parsedEvents) {
+                            //To deal with 429 throttling until MS put batching in their sdk
+//                            try {
+//                                Thread.sleep(800);
+//                            } catch (InterruptedException e1) {
+//                                e1.printStackTrace();
+//                            }
                             eventCollectionRequestBuilder.buildRequest()
                                     .post(e, new ICallback<Event>() {
                                         @Override
@@ -494,7 +504,7 @@ public class SotonTimetableService extends JobIntentService {
                                             PugNotification.with(getApplicationContext())
                                                     .load()
                                                     .title("Office Sync Failed")
-                                                    .message(ex.getMessage())
+                                                    .message(ex.getLocalizedMessage())
                                                     .flags(DEFAULT_ALL)
                                                     .click(SettingsActivity.class)
                                                     .smallIcon(
